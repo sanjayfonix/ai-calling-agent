@@ -1,0 +1,51 @@
+version: "3.8"
+
+services:
+  # ── PostgreSQL Database ────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: aicallingagent-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aicallingagent
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-securepassword123}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── AI Calling Agent Application ───────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aicallingagent-app
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:${DB_PASSWORD:-securepassword123}@db:5432/aicallingagent
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+      - ./recordings:/app/recordings
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  pgdata:
+    driver: local

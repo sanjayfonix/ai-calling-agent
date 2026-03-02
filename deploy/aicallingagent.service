@@ -1,0 +1,26 @@
+[Unit]
+Description=AI Calling Agent
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=exec
+User=appuser
+Group=appuser
+WorkingDirectory=/opt/aicallingagent
+EnvironmentFile=/opt/aicallingagent/.env
+ExecStart=/opt/aicallingagent/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --ws-max-size 16777216 --timeout-keep-alive 120
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/aicallingagent/app.log
+StandardError=append:/var/log/aicallingagent/error.log
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/aicallingagent/logs /opt/aicallingagent/recordings /var/log/aicallingagent
+
+[Install]
+WantedBy=multi-user.target
