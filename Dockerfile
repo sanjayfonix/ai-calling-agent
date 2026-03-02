@@ -34,12 +34,9 @@ RUN mkdir -p logs recordings && \
 # Switch to non-root user
 USER appuser
 
-# Expose port
+# Expose port (Render sets PORT dynamically)
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8000/api/health || exit 1
-
-# Run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--ws-max-size", "16777216", "--timeout-keep-alive", "120"]
+# Create database tables on startup, then run the app
+# Render injects PORT env var; shell form CMD expands $PORT
+CMD sh -c "python -c 'import asyncio; from app.database import init_db; asyncio.run(init_db())' && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --ws-max-size 16777216 --timeout-keep-alive 120"
