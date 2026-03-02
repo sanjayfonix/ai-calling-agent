@@ -120,8 +120,7 @@ class CallManager:
 
         await self.openai_client.connect()
 
-        # Wait briefly for session to be configured, then trigger greeting
-        await asyncio.sleep(0.5)
+        # Trigger greeting immediately (OpenAI session is already configured)
         if not self._greeting_sent:
             self._greeting_sent = True
             await self.openai_client.trigger_response()

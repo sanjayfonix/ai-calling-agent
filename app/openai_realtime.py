@@ -117,9 +117,10 @@ class OpenAIRealtimeClient:
                 },
                 "turn_detection": {
                     "type": "server_vad",
-                    "threshold": 0.3,
-                    "prefix_padding_ms": 500,
-                    "silence_duration_ms": 800,
+                    "threshold": 0.35,
+                    "prefix_padding_ms": 400,
+                    "silence_duration_ms": 700,
+                    "create_response": True,
                 },
                 "tools": TOOL_DEFINITIONS,
                 "tool_choice": "auto",
@@ -175,10 +176,12 @@ class OpenAIRealtimeClient:
         await self._send({"type": "response.create"})
 
     async def cancel_response(self) -> None:
-        """Cancel the current AI response (for barge-in/interruption)."""
+        """Cancel the current AI response (for barge-in/interruption).
+        After cancelling, OpenAI will process customer audio and auto-respond."""
         if not self.is_connected:
             return
         await self._send({"type": "response.cancel"})
+        # Also truncate the last assistant item so OpenAI knows to respond fresh
         logger.info("openai_response_cancelled", call_id=self.call_id)
 
     async def send_function_result(
@@ -329,8 +332,21 @@ class OpenAIRealtimeClient:
                 logger.debug("openai_response_started", call_id=self.call_id)
 
             case "response.done":
+                status = event.get("response", {}).get("status", "")
                 self._current_response_id = None
-                logger.debug("openai_response_done", call_id=self.call_id)
+                logger.info(
+                    "openai_response_done",
+                    call_id=self.call_id,
+                    status=status,
+                )
+                # If response failed or was incomplete, log for debugging
+                if status == "failed":
+                    error_info = event.get("response", {}).get("status_details", {})
+                    logger.error(
+                        "openai_response_failed",
+                        call_id=self.call_id,
+                        details=error_info,
+                    )
 
             # ── Error Events ─────────────────────────────
             case "error":
@@ -356,7 +372,7 @@ class OpenAIRealtimeClient:
             # ── Input Audio Buffer Events ────────────────
             case "input_audio_buffer.speech_started":
                 logger.debug("customer_speaking", call_id=self.call_id)
-                # INTERRUPTION: Customer started talking — cancel AI response
+                # INTERRUPTION: Customer started talking — cancel AI response & clear audio
                 if self._current_response_id:
                     await self.cancel_response()
                 if self._on_speech_started:
@@ -367,6 +383,12 @@ class OpenAIRealtimeClient:
 
             case "input_audio_buffer.committed":
                 logger.debug("audio_buffer_committed", call_id=self.call_id)
+
+            # ── Response Cancelled (after interruption) ──
+            case "response.cancelled":
+                logger.info("openai_response_cancelled_event", call_id=self.call_id)
+                # Response was cancelled due to interruption — that's fine,
+                # OpenAI will process the customer's input and auto-respond
 
             # ── Catch-all ────────────────────────────────
             case _:
