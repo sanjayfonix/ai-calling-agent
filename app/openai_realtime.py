@@ -117,9 +117,9 @@ class OpenAIRealtimeClient:
                 },
                 "turn_detection": {
                     "type": "server_vad",
-                    "threshold": 0.35,
-                    "prefix_padding_ms": 400,
-                    "silence_duration_ms": 700,
+                    "threshold": 0.5,
+                    "prefix_padding_ms": 300,
+                    "silence_duration_ms": 600,
                     "create_response": True,
                 },
                 "tools": TOOL_DEFINITIONS,
@@ -372,9 +372,9 @@ class OpenAIRealtimeClient:
             # ── Input Audio Buffer Events ────────────────
             case "input_audio_buffer.speech_started":
                 logger.debug("customer_speaking", call_id=self.call_id)
-                # INTERRUPTION: Customer started talking — cancel AI response & clear audio
-                if self._current_response_id:
-                    await self.cancel_response()
+                # Let OpenAI's server VAD handle interruption natively.
+                # We only clear the Twilio audio buffer so stale audio stops playing.
+                # Do NOT cancel the response — that causes voice cutting.
                 if self._on_speech_started:
                     await self._on_speech_started()
 
