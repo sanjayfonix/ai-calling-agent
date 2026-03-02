@@ -115,6 +115,7 @@ class CallManager:
             on_function_call=self._on_function_call,
             on_error=self._on_openai_error,
             on_session_end=self._on_openai_session_end,
+            on_speech_started=self._on_customer_speech_started,
         )
 
         await self.openai_client.connect()
@@ -129,6 +130,12 @@ class CallManager:
         """Audio from Twilio (caller) → forward to OpenAI."""
         if self.openai_client and self.openai_client.is_connected:
             await self.openai_client.send_audio(audio_b64.encode("utf-8"))
+
+    async def _on_customer_speech_started(self) -> None:
+        """Customer started speaking — clear Twilio audio buffer for interruption."""
+        logger.info("customer_interruption", call_id=self.call_id)
+        if self.twilio_handler and self.twilio_handler.is_connected:
+            await self.twilio_handler.clear_audio()
 
     async def _on_openai_audio(self, audio_bytes: bytes) -> None:
         """Audio from OpenAI (AI agent) → forward to Twilio."""

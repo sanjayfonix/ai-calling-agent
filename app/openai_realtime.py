@@ -45,12 +45,14 @@ class OpenAIRealtimeClient:
         on_function_call: Callable[[str, dict], Awaitable[str]] | None=None,
         on_error: Callable[[str], Awaitable[None]] | None=None,
         on_session_end: Callable[[], Awaitable[None]] | None=None,
+        on_speech_started: Callable[[], Awaitable[None]] | None=None,
     ):
         self.call_id = call_id
         self.settings = get_settings()
         self._ws: ClientConnection | None = None
         self._listener_task: asyncio.Task | None = None
         self._connected = False
+        self._current_response_id: str | None = None
 
         # Event handlers
         self._on_audio_delta = on_audio_delta
@@ -58,6 +60,7 @@ class OpenAIRealtimeClient:
         self._on_function_call = on_function_call
         self._on_error = on_error
         self._on_session_end = on_session_end
+        self._on_speech_started = on_speech_started
 
     @property
     def is_connected(self) -> bool:
@@ -114,9 +117,9 @@ class OpenAIRealtimeClient:
                 },
                 "turn_detection": {
                     "type": "server_vad",
-                    "threshold": 0.5,
-                    "prefix_padding_ms": 300,
-                    "silence_duration_ms": 500,
+                    "threshold": 0.3,
+                    "prefix_padding_ms": 500,
+                    "silence_duration_ms": 800,
                 },
                 "tools": TOOL_DEFINITIONS,
                 "tool_choice": "auto",
@@ -170,6 +173,13 @@ class OpenAIRealtimeClient:
         if not self.is_connected:
             return
         await self._send({"type": "response.create"})
+
+    async def cancel_response(self) -> None:
+        """Cancel the current AI response (for barge-in/interruption)."""
+        if not self.is_connected:
+            return
+        await self._send({"type": "response.cancel"})
+        logger.info("openai_response_cancelled", call_id=self.call_id)
 
     async def send_function_result(
         self, call_id: str, result: str
@@ -315,9 +325,11 @@ class OpenAIRealtimeClient:
 
             # ── Response Events ──────────────────────────
             case "response.created":
+                self._current_response_id = event.get("response", {}).get("id")
                 logger.debug("openai_response_started", call_id=self.call_id)
 
             case "response.done":
+                self._current_response_id = None
                 logger.debug("openai_response_done", call_id=self.call_id)
 
             # ── Error Events ─────────────────────────────
@@ -344,6 +356,11 @@ class OpenAIRealtimeClient:
             # ── Input Audio Buffer Events ────────────────
             case "input_audio_buffer.speech_started":
                 logger.debug("customer_speaking", call_id=self.call_id)
+                # INTERRUPTION: Customer started talking — cancel AI response
+                if self._current_response_id:
+                    await self.cancel_response()
+                if self._on_speech_started:
+                    await self._on_speech_started()
 
             case "input_audio_buffer.speech_stopped":
                 logger.debug("customer_stopped_speaking", call_id=self.call_id)
