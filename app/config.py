@@ -71,12 +71,17 @@ class Settings(BaseSettings):
 
     @property
     def effective_database_url(self) -> str:
-        """Convert postgres:// to postgresql+asyncpg:// for SQLAlchemy."""
+        """Convert postgres:// to postgresql+asyncpg:// for SQLAlchemy.
+        Also strips parameters not supported by asyncpg (e.g. channel_binding).
+        """
         url = self.database_url
         if url.startswith("postgres://"):
             url = url.replace("postgres://", "postgresql+asyncpg://", 1)
         elif url.startswith("postgresql://"):
             url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        # Remove channel_binding param (not supported by asyncpg)
+        import re
+        url = re.sub(r'[&?]channel_binding=[^&]*', '', url)
         return url
 
 
