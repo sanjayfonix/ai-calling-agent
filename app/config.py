@@ -72,17 +72,27 @@ class Settings(BaseSettings):
     @property
     def effective_database_url(self) -> str:
         """Convert postgres:// to postgresql+asyncpg:// for SQLAlchemy.
-        Also strips parameters not supported by asyncpg (e.g. channel_binding).
+        Strips parameters not supported by asyncpg (sslmode, channel_binding).
+        SSL is handled separately via connect_args in database.py.
         """
+        import re
         url = self.database_url
         if url.startswith("postgres://"):
             url = url.replace("postgres://", "postgresql+asyncpg://", 1)
         elif url.startswith("postgresql://"):
             url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
-        # Remove channel_binding param (not supported by asyncpg)
-        import re
+        # Remove params not supported by asyncpg
         url = re.sub(r'[&?]channel_binding=[^&]*', '', url)
+        url = re.sub(r'[&?]sslmode=[^&]*', '', url)
+        # Clean up leftover ? if all params were stripped
+        if url.endswith('?'):
+            url = url[:-1]
         return url
+
+    @property
+    def requires_ssl(self) -> bool:
+        """Check if the original DATABASE_URL requested SSL."""
+        return 'sslmode=require' in self.database_url or 'neon.tech' in self.database_url
 
 
 @lru_cache()
