@@ -127,8 +127,8 @@ class OpenAIRealtimeClient:
                 },
                 "tools": TOOL_DEFINITIONS,
                 "tool_choice": "auto",
-                "temperature": 0.5,
-                "max_response_output_tokens": 512,
+                "temperature": 0.6,
+                "max_response_output_tokens": 1024,
             },
         }
 
@@ -340,7 +340,7 @@ class OpenAIRealtimeClient:
             # ── Response Events ──────────────────────────
             case "response.created":
                 self._current_response_id = event.get("response", {}).get("id")
-                logger.debug("openai_response_started", call_id=self.call_id)
+                logger.info("openai_response_started", call_id=self.call_id, response_id=self._current_response_id)
 
             case "response.done":
                 status = event.get("response", {}).get("status", "")
