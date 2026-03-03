@@ -119,14 +119,14 @@ class OpenAIRealtimeClient:
                 "turn_detection": {
                     "type": "server_vad",
                     "threshold": 0.5,
-                    "prefix_padding_ms": 300,
-                    "silence_duration_ms": 600,
+                    "prefix_padding_ms": 500,
+                    "silence_duration_ms": 1200,
                     "create_response": True,
                 },
                 "tools": TOOL_DEFINITIONS,
                 "tool_choice": "auto",
-                "temperature": 0.7,
-                "max_response_output_tokens": 4096,
+                "temperature": 0.6,
+                "max_response_output_tokens": 1024,
             },
         }
 
@@ -340,14 +340,41 @@ class OpenAIRealtimeClient:
 
             case "response.done":
                 status = event.get("response", {}).get("status", "")
+                response_id = event.get("response", {}).get("id", "")
                 self._current_response_id = None
                 logger.info(
                     "openai_response_done",
                     call_id=self.call_id,
                     status=status,
+                    response_id=response_id,
                 )
-                # If response failed or was incomplete, log for debugging
-                if status == "failed":
+                # If response was cancelled (user interrupted), truncate the 
+                # assistant's conversation item so OpenAI knows what was already
+                # spoken and won't repeat it in the next response.
+                if status == "cancelled":
+                    output_items = event.get("response", {}).get("output", [])
+                    for item in output_items:
+                        item_id = item.get("id", "")
+                        content_parts = item.get("content", [])
+                        # Find how much audio was actually sent
+                        for part in content_parts:
+                            if part.get("type") == "audio":
+                                # Truncate the item at what was already delivered
+                                truncate_event = {
+                                    "type": "conversation.item.truncate",
+                                    "item_id": item_id,
+                                    "content_index": 0,
+                                    "audio_end_ms": 0,  # OpenAI figures out actual cutoff
+                                }
+                                await self._send(truncate_event)
+                                logger.info(
+                                    "openai_truncated_interrupted_item",
+                                    call_id=self.call_id,
+                                    item_id=item_id,
+                                )
+                                break
+                # If response failed, log for debugging
+                elif status == "failed":
                     error_info = event.get("response", {}).get("status_details", {})
                     logger.error(
                         "openai_response_failed",
