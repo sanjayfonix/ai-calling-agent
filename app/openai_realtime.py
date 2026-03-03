@@ -120,14 +120,14 @@ class OpenAIRealtimeClient:
                 },
                 "turn_detection": {
                     "type": "server_vad",
-                    "threshold": 0.3,
+                    "threshold": 0.6,
                     "prefix_padding_ms": 400,
-                    "silence_duration_ms": 700,
+                    "silence_duration_ms": 1000,
                     "create_response": True,
                 },
                 "tools": TOOL_DEFINITIONS,
                 "tool_choice": "auto",
-                "temperature": 0.6,
+                "temperature": 0.5,
                 "max_response_output_tokens": 1024,
             },
         }
