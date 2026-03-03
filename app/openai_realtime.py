@@ -122,13 +122,13 @@ class OpenAIRealtimeClient:
                     "type": "server_vad",
                     "threshold": 0.3,
                     "prefix_padding_ms": 400,
-                    "silence_duration_ms": 800,
+                    "silence_duration_ms": 700,
                     "create_response": True,
                 },
                 "tools": TOOL_DEFINITIONS,
                 "tool_choice": "auto",
-                "temperature": 0.6,
-                "max_response_output_tokens": 1024,
+                "temperature": 0.5,
+                "max_response_output_tokens": 512,
             },
         }
 
