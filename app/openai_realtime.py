@@ -52,6 +52,7 @@ class OpenAIRealtimeClient:
         self._ws: ClientConnection | None = None
         self._listener_task: asyncio.Task | None = None
         self._connected = False
+        self._session_ready = asyncio.Event()
         self._current_response_id: str | None = None
 
         # Event handlers
@@ -124,7 +125,7 @@ class OpenAIRealtimeClient:
                 },
                 "tools": TOOL_DEFINITIONS,
                 "tool_choice": "auto",
-                "temperature": 0.6,
+                "temperature": 0.7,
                 "max_response_output_tokens": 4096,
             },
         }
@@ -170,9 +171,15 @@ class OpenAIRealtimeClient:
         await self._send({"type": "response.create"})
 
     async def trigger_response(self) -> None:
-        """Manually trigger AI to generate a response (for initial greeting)."""
+        """Manually trigger AI to generate a response (for initial greeting).\n        Waits for session to be ready before triggering."""
         if not self.is_connected:
             return
+        # Wait up to 3 seconds for session.updated confirmation
+        try:
+            await asyncio.wait_for(self._session_ready.wait(), timeout=3.0)
+        except asyncio.TimeoutError:
+            logger.warning("openai_session_ready_timeout", call_id=self.call_id)
+            # Try anyway — session might still work
         await self._send({"type": "response.create"})
 
     async def cancel_response(self) -> None:
@@ -279,11 +286,11 @@ class OpenAIRealtimeClient:
 
             case "session.updated":
                 logger.info("openai_session_updated", call_id=self.call_id)
+                self._session_ready.set()  # Signal that session is configured
 
             # ── Audio Events ─────────────────────────────
             case "response.audio.delta":
-                # Streaming audio from AI → send to Twilio
-                # Pass base64 string directly to avoid decode/re-encode overhead
+                # Streaming audio from AI → pass base64 directly to Twilio
                 audio_b64 = event.get("delta", "")
                 if audio_b64 and self._on_audio_delta:
                     await self._on_audio_delta(audio_b64)

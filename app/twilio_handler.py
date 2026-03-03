@@ -133,7 +133,7 @@ class TwilioMediaStreamHandler:
     async def send_audio_b64(self, audio_b64: str) -> None:
         """
         Send pre-encoded base64 audio directly to Twilio.
-        Avoids unnecessary decode/re-encode when audio is already base64.
+        Avoids decode/re-encode when audio is already base64 from OpenAI.
         """
         if not self._connected or not self.stream_sid:
             return

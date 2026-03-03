@@ -94,34 +94,53 @@ class CallManager:
         # Register in active calls
         CallManager._active_calls[call_sid] = self
 
-        # Create database record
-        async with async_session_factory() as session:
-            encryptor = get_encryptor()
-            repo = CallSessionRepository(session, encryptor)
-            call_record = await repo.create(
-                twilio_call_sid=call_sid,
-                from_number="inbound",  # Will be updated from Twilio webhook
-                to_number=self.settings.twilio_phone_number,
-            )
-            self.db_call_id = call_record.id
-            await repo.update_status(call_record.id, CallStatus.IN_PROGRESS)
-            await session.commit()
+        # Create database record (non-blocking — don't let DB failure kill the call)
+        try:
+            async with async_session_factory() as session:
+                encryptor = get_encryptor()
+                repo = CallSessionRepository(session, encryptor)
+                call_record = await repo.create(
+                    twilio_call_sid=call_sid,
+                    from_number="inbound",
+                    to_number=self.settings.twilio_phone_number,
+                )
+                self.db_call_id = call_record.id
+                await repo.update_status(call_record.id, CallStatus.IN_PROGRESS)
+                await session.commit()
+        except Exception as e:
+            logger.error("db_create_session_error", call_id=self.call_id, error=str(e))
+            # Continue without DB — the call should still work
 
-        # Connect to OpenAI Realtime
-        self.openai_client = OpenAIRealtimeClient(
-            call_id=self.call_id,
-            on_audio_delta=self._on_openai_audio,
-            on_transcript=self._on_transcript,
-            on_function_call=self._on_function_call,
-            on_error=self._on_openai_error,
-            on_session_end=self._on_openai_session_end,
-            on_speech_started=self._on_customer_speech_started,
-        )
+        # Connect to OpenAI Realtime with retry
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            try:
+                self.openai_client = OpenAIRealtimeClient(
+                    call_id=self.call_id,
+                    on_audio_delta=self._on_openai_audio,
+                    on_transcript=self._on_transcript,
+                    on_function_call=self._on_function_call,
+                    on_error=self._on_openai_error,
+                    on_session_end=self._on_openai_session_end,
+                    on_speech_started=self._on_customer_speech_started,
+                )
+                await self.openai_client.connect()
+                logger.info("openai_connected_successfully", call_id=self.call_id, attempt=attempt)
+                break
+            except Exception as e:
+                logger.error(
+                    "openai_connect_failed",
+                    call_id=self.call_id,
+                    attempt=attempt,
+                    error=str(e),
+                )
+                if attempt == max_retries:
+                    logger.error("openai_connect_all_retries_failed", call_id=self.call_id)
+                    return  # Give up — Twilio WS stays open but no AI
+                await asyncio.sleep(0.5)
 
-        await self.openai_client.connect()
-
-        # Trigger greeting immediately (OpenAI session is already configured)
-        if not self._greeting_sent:
+        # Trigger greeting when session is ready (trigger_response waits internally)
+        if not self._greeting_sent and self.openai_client and self.openai_client.is_connected:
             self._greeting_sent = True
             await self.openai_client.trigger_response()
 
@@ -136,10 +155,10 @@ class CallManager:
         if self.twilio_handler and self.twilio_handler.is_connected:
             await self.twilio_handler.clear_audio()
 
-    async def _on_openai_audio(self, audio_bytes: bytes) -> None:
-        """Audio from OpenAI (AI agent) → forward to Twilio."""
+    async def _on_openai_audio(self, audio_b64: str) -> None:
+        """Audio from OpenAI (AI agent) → forward to Twilio as base64 directly."""
         if self.twilio_handler and self.twilio_handler.is_connected:
-            await self.twilio_handler.send_audio(audio_bytes)
+            await self.twilio_handler.send_audio_b64(audio_b64)
 
     async def _on_transcript(self, role: str, content: str) -> None:
         """Store transcript entries from both sides."""
