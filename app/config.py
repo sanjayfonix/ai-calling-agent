@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     max_retries_per_question: int = Field(3, alias="MAX_RETRIES_PER_QUESTION")
 
     # ── OpenAI Realtime ─────────────────────────────────────
-    openai_realtime_model: str = "gpt-4o-realtime-preview-2024-12-17"
+    openai_realtime_model: str = "gpt-4o-mini-realtime-preview-2024-12-17"
     openai_realtime_voice: str = "shimmer"  # Professional female voice — calm, clear, mid-paced
 
     class Config:
