@@ -123,6 +123,7 @@ class CallManager:
                     on_error=self._on_openai_error,
                     on_session_end=self._on_openai_session_end,
                     on_speech_started=self._on_customer_speech_started,
+                    on_response_interrupted=self._on_response_interrupted,
                 )
                 await self.openai_client.connect()
                 logger.info("openai_connected_successfully", call_id=self.call_id, attempt=attempt)
@@ -152,12 +153,18 @@ class CallManager:
     async def _on_customer_speech_started(self) -> None:
         """Customer started speaking — log only, let OpenAI VAD handle interruption natively.
         
-        NOTE: We deliberately do NOT call clear_audio() here because OpenAI's
-        server-side VAD already handles interruptions. Clearing the Twilio buffer
-        on every speech detection (including ambient noise, breaths, etc.) was
-        causing the AI voice to cut out mid-sentence.
+        NOTE: We do NOT call clear_audio() here because OpenAI's server-side VAD
+        already handles interruptions. The Twilio buffer is cleared later when we
+        confirm the response was actually cancelled (see _on_response_interrupted).
         """
         logger.info("customer_speech_detected", call_id=self.call_id)
+
+    async def _on_response_interrupted(self) -> None:
+        """OpenAI confirmed a response was cancelled due to customer interruption.
+        Clear Twilio's audio buffer so stale AI audio stops playing immediately."""
+        logger.info("clearing_twilio_buffer_on_interruption", call_id=self.call_id)
+        if self.twilio_handler and self.twilio_handler.is_connected:
+            await self.twilio_handler.clear_audio()
 
     async def _on_openai_audio(self, audio_b64: str) -> None:
         """Audio from OpenAI (AI agent) → forward to Twilio as base64 directly."""
@@ -342,10 +349,14 @@ class CallManager:
     async def _on_call_ended(self) -> None:
         """Called when Twilio WS closes."""
         logger.info("call_ended", call_id=self.call_id)
-        await self._cleanup()
+        # Don't call _cleanup here — it's called in the finally block of start()
 
     async def _cleanup(self) -> None:
-        """Clean up all resources."""
+        """Clean up all resources. Called once from start()'s finally block."""
+        if self._call_ended:
+            return  # Already cleaned up
+        self._call_ended = True
+
         # Remove from active calls
         if self.call_sid and self.call_sid in CallManager._active_calls:
             del CallManager._active_calls[self.call_sid]

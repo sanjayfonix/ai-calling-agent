@@ -112,8 +112,15 @@ class TwilioMediaStreamHandler:
             await self._on_call_start(self.call_sid, self.stream_sid)
 
     async def _handle_media(self, message: dict) -> None:
-        """Process audio from Twilio and forward to OpenAI."""
+        """Process audio from Twilio and forward to OpenAI.
+        Only forwards inbound (customer) audio, ignores outbound (AI echo)."""
         media = message.get("media", {})
+        track = media.get("track", "inbound")
+
+        # Only forward customer's inbound audio, never our own outbound audio
+        if track != "inbound":
+            return
+
         payload = media.get("payload", "")  # base64-encoded G.711 μ-law
 
         if payload and self._on_audio_received:
