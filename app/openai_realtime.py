@@ -40,7 +40,7 @@ class OpenAIRealtimeClient:
     def __init__(
         self,
         call_id: str,
-        on_audio_delta: Callable[[bytes], Awaitable[None]] | None=None,
+        on_audio_delta: Callable[[str], Awaitable[None]] | None=None,
         on_transcript: Callable[[str, str], Awaitable[None]] | None=None,
         on_function_call: Callable[[str, dict], Awaitable[str]] | None=None,
         on_error: Callable[[str], Awaitable[None]] | None=None,
@@ -124,7 +124,7 @@ class OpenAIRealtimeClient:
                 },
                 "tools": TOOL_DEFINITIONS,
                 "tool_choice": "auto",
-                "temperature": 0.7,
+                "temperature": 0.6,
                 "max_response_output_tokens": 4096,
             },
         }
@@ -283,10 +283,10 @@ class OpenAIRealtimeClient:
             # ── Audio Events ─────────────────────────────
             case "response.audio.delta":
                 # Streaming audio from AI → send to Twilio
+                # Pass base64 string directly to avoid decode/re-encode overhead
                 audio_b64 = event.get("delta", "")
                 if audio_b64 and self._on_audio_delta:
-                    audio_bytes = base64.b64decode(audio_b64)
-                    await self._on_audio_delta(audio_bytes)
+                    await self._on_audio_delta(audio_b64)
 
             case "response.audio.done":
                 logger.debug("openai_audio_done", call_id=self.call_id)
