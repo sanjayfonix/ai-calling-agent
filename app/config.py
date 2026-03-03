@@ -57,7 +57,7 @@ class Settings(BaseSettings):
 
     # ── OpenAI Realtime ─────────────────────────────────────
     openai_realtime_model: str = "gpt-4o-realtime-preview-2024-12-17"
-    openai_realtime_voice: str = "shimmer"  # Professional female voice — calm, clear, mid-paced
+    openai_realtime_voice: str = "alloy"  # Options: alloy, echo, shimmer, ash, ballad, coral, sage, verse
 
     class Config:
         env_file = ".env"
