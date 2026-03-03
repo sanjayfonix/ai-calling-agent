@@ -55,8 +55,11 @@ class CallManager:
 
         # State
         self._consent_received = False
-        self._call_ended = False
+        self._call_ended = False     # AI called end_call function
+        self._cleaned_up = False      # Resources cleaned up
         self._greeting_sent = False
+        self._audio_chunks_to_openai = 0
+        self._audio_chunks_from_openai = 0
 
     async def start(self) -> None:
         """Entry point — handle the complete call lifecycle."""
@@ -107,9 +110,9 @@ class CallManager:
                 self.db_call_id = call_record.id
                 await repo.update_status(call_record.id, CallStatus.IN_PROGRESS)
                 await session.commit()
+            logger.info("db_session_created", call_id=self.call_id, db_id=str(self.db_call_id))
         except Exception as e:
             logger.error("db_create_session_error", call_id=self.call_id, error=str(e))
-            # Continue without DB — the call should still work
 
         # Connect to OpenAI Realtime with retry
         max_retries = 2
@@ -137,43 +140,56 @@ class CallManager:
                 )
                 if attempt == max_retries:
                     logger.error("openai_connect_all_retries_failed", call_id=self.call_id)
-                    return  # Give up — Twilio WS stays open but no AI
+                    return
                 await asyncio.sleep(0.5)
 
-        # Trigger greeting when session is ready (trigger_response waits internally)
+        # Trigger greeting (waits for session.updated internally)
         if not self._greeting_sent and self.openai_client and self.openai_client.is_connected:
             self._greeting_sent = True
+            logger.info("triggering_greeting", call_id=self.call_id)
             await self.openai_client.trigger_response()
 
     async def _on_twilio_audio(self, audio_b64: str) -> None:
-        """Audio from Twilio (caller) → forward to OpenAI."""
+        """Audio from Twilio (customer) → forward to OpenAI."""
         if self.openai_client and self.openai_client.is_connected:
-            await self.openai_client.send_audio(audio_b64.encode("utf-8"))
+            self._audio_chunks_to_openai += 1
+            # Log every 100th chunk to track audio flow without spam
+            if self._audio_chunks_to_openai % 100 == 1:
+                logger.info(
+                    "audio_flowing_to_openai",
+                    call_id=self.call_id,
+                    chunks=self._audio_chunks_to_openai,
+                )
+            await self.openai_client.send_audio(audio_b64)
 
     async def _on_customer_speech_started(self) -> None:
-        """Customer started speaking — log only, let OpenAI VAD handle interruption natively.
-        
-        NOTE: We do NOT call clear_audio() here because OpenAI's server-side VAD
-        already handles interruptions. The Twilio buffer is cleared later when we
-        confirm the response was actually cancelled (see _on_response_interrupted).
-        """
+        """Customer started speaking — log only.
+        OpenAI's server-side VAD handles interruptions natively.
+        Twilio buffer is cleared only when response is confirmed cancelled."""
         logger.info("customer_speech_detected", call_id=self.call_id)
 
     async def _on_response_interrupted(self) -> None:
-        """OpenAI confirmed a response was cancelled due to customer interruption.
-        Clear Twilio's audio buffer so stale AI audio stops playing immediately."""
+        """OpenAI confirmed response was cancelled due to customer interruption.
+        Clear Twilio's audio buffer so stale AI audio stops immediately."""
         logger.info("clearing_twilio_buffer_on_interruption", call_id=self.call_id)
         if self.twilio_handler and self.twilio_handler.is_connected:
             await self.twilio_handler.clear_audio()
 
     async def _on_openai_audio(self, audio_b64: str) -> None:
-        """Audio from OpenAI (AI agent) → forward to Twilio as base64 directly."""
+        """Audio from OpenAI (AI agent) → forward to Twilio."""
         if self.twilio_handler and self.twilio_handler.is_connected:
+            self._audio_chunks_from_openai += 1
+            if self._audio_chunks_from_openai % 100 == 1:
+                logger.info(
+                    "audio_flowing_to_twilio",
+                    call_id=self.call_id,
+                    chunks=self._audio_chunks_from_openai,
+                )
             await self.twilio_handler.send_audio_b64(audio_b64)
 
     async def _on_transcript(self, role: str, content: str) -> None:
         """Store transcript entries from both sides."""
-        if not self.db_call_id or not content.strip():
+        if not content.strip():
             return
 
         logger.info(
@@ -182,6 +198,9 @@ class CallManager:
             role=role,
             content=content[:100],
         )
+
+        if not self.db_call_id:
+            return
 
         try:
             async with async_session_factory() as session:
@@ -197,26 +216,37 @@ class CallManager:
             "function_call_received",
             call_id=self.call_id,
             function=fn_name,
-            args_keys=list(fn_args.keys()),
+            args=fn_args,
         )
 
-        match fn_name:
-            case "record_consent":
-                return await self._handle_consent(fn_args)
-            case "save_customer_data":
-                return await self._handle_save_data(fn_args)
-            case "end_call":
-                return await self._handle_end_call(fn_args)
-            case _:
-                logger.warning("unknown_function", function=fn_name)
-                return json.dumps({"error": f"Unknown function: {fn_name}"})
+        try:
+            match fn_name:
+                case "record_consent":
+                    return await self._handle_consent(fn_args)
+                case "save_customer_data":
+                    return await self._handle_save_data(fn_args)
+                case "end_call":
+                    return await self._handle_end_call(fn_args)
+                case _:
+                    logger.warning("unknown_function", function=fn_name)
+                    return json.dumps({"error": f"Unknown function: {fn_name}"})
+        except Exception as e:
+            logger.error("function_call_error", function=fn_name, error=str(e))
+            return json.dumps({"error": str(e)})
 
     async def _handle_consent(self, args: dict) -> str:
         """Process consent decision."""
         consent_given = args.get("consent_given", False)
 
         if not self.db_call_id:
-            return json.dumps({"error": "No active call session"})
+            logger.warning("consent_no_db_id", call_id=self.call_id)
+            if consent_given:
+                self._consent_received = True
+                return json.dumps({"status": "success", "consent": "granted",
+                                   "message": "Consent recorded. Proceed with the conversation."})
+            else:
+                return json.dumps({"status": "success", "consent": "denied",
+                                   "message": "Consent denied. End the call politely."})
 
         try:
             async with async_session_factory() as session:
@@ -226,26 +256,28 @@ class CallManager:
                 if consent_given:
                     self._consent_received = True
                     await repo.update_consent(self.db_call_id, ConsentStatus.GRANTED)
+                    await session.commit()
                     logger.info("consent_granted", call_id=self.call_id)
                     return json.dumps({
                         "status": "success",
                         "consent": "granted",
-                        "message": "Consent recorded. You may proceed with the conversation.",
+                        "message": "Consent recorded. You may now proceed with the conversation.",
                     })
                 else:
                     await repo.update_consent(self.db_call_id, ConsentStatus.DENIED)
                     await repo.update_status(self.db_call_id, CallStatus.NO_CONSENT)
+                    await session.commit()
                     logger.info("consent_denied", call_id=self.call_id)
                     return json.dumps({
                         "status": "success",
                         "consent": "denied",
                         "message": "Consent denied. Please end the call politely.",
                     })
-
-                await session.commit()    
         except Exception as e:
             logger.error("consent_error", error=str(e))
-            return json.dumps({"error": str(e)})
+            if consent_given:
+                self._consent_received = True
+            return json.dumps({"status": "success", "consent": "granted" if consent_given else "denied"})
 
     async def _handle_save_data(self, args: dict) -> str:
         """Save collected customer data to the database."""
@@ -259,7 +291,6 @@ class CallManager:
 
                 await repo.create_or_update(self.db_call_id, args)
 
-                # Check for missing required fields
                 required_fields = ["full_name", "email", "age", "zipcode", "state"]
                 missing = [f for f in required_fields if not args.get(f)]
                 await repo.mark_complete(self.db_call_id, missing if missing else None)
@@ -313,8 +344,8 @@ class CallManager:
             except Exception as e:
                 logger.error("end_call_db_error", error=str(e))
 
-        # Hang up via Twilio REST API (after a short delay to let goodbye play)
-        asyncio.create_task(self._hangup_after_delay(3.0))
+        # Hang up via Twilio REST API (after delay to let goodbye play)
+        asyncio.create_task(self._hangup_after_delay(5.0))
 
         return json.dumps({
             "status": "success",
@@ -348,14 +379,20 @@ class CallManager:
 
     async def _on_call_ended(self) -> None:
         """Called when Twilio WS closes."""
-        logger.info("call_ended", call_id=self.call_id)
-        # Don't call _cleanup here — it's called in the finally block of start()
+        logger.info(
+            "call_ended",
+            call_id=self.call_id,
+            audio_to_openai=self._audio_chunks_to_openai,
+            audio_from_openai=self._audio_chunks_from_openai,
+        )
 
     async def _cleanup(self) -> None:
-        """Clean up all resources. Called once from start()'s finally block."""
-        if self._call_ended:
-            return  # Already cleaned up
-        self._call_ended = True
+        """Clean up all resources. Called from start()'s finally block."""
+        if self._cleaned_up:
+            return
+        self._cleaned_up = True
+
+        logger.info("cleanup_starting", call_id=self.call_id)
 
         # Remove from active calls
         if self.call_sid and self.call_sid in CallManager._active_calls:
@@ -365,7 +402,7 @@ class CallManager:
         if self.openai_client:
             await self.openai_client.disconnect()
 
-        # Final DB update if not already ended
+        # Final DB update if end_call was never explicitly called
         if self.db_call_id and not self._call_ended:
             try:
                 async with async_session_factory() as session:
@@ -376,7 +413,12 @@ class CallManager:
             except Exception as e:
                 logger.error("cleanup_db_error", error=str(e))
 
-        logger.info("call_cleaned_up", call_id=self.call_id)
+        logger.info(
+            "call_cleaned_up",
+            call_id=self.call_id,
+            audio_to_openai=self._audio_chunks_to_openai,
+            audio_from_openai=self._audio_chunks_from_openai,
+        )
 
     @classmethod
     def get_active_call(cls, call_sid: str) -> "CallManager | None":

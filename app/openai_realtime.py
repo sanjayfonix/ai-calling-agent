@@ -120,9 +120,9 @@ class OpenAIRealtimeClient:
                 },
                 "turn_detection": {
                     "type": "server_vad",
-                    "threshold": 0.5,
-                    "prefix_padding_ms": 500,
-                    "silence_duration_ms": 1200,
+                    "threshold": 0.3,
+                    "prefix_padding_ms": 400,
+                    "silence_duration_ms": 800,
                     "create_response": True,
                 },
                 "tools": TOOL_DEFINITIONS,
@@ -135,18 +135,17 @@ class OpenAIRealtimeClient:
         await self._send(session_config)
         logger.info("openai_session_configured", call_id=self.call_id)
 
-    async def send_audio(self, audio_bytes: bytes) -> None:
+    async def send_audio(self, audio_b64: str) -> None:
         """
         Send audio data to OpenAI Realtime API.
-        Audio should be base64-encoded G.711 u-law from Twilio.
+        Audio should be base64-encoded G.711 u-law string from Twilio.
         """
         if not self.is_connected:
             return
 
-        # Twilio sends base64-encoded audio — send it directly
         event = {
             "type": "input_audio_buffer.append",
-            "audio": audio_bytes.decode("utf-8") if isinstance(audio_bytes, bytes) else audio_bytes,
+            "audio": audio_b64,
         }
         await self._send(event)
 
@@ -173,15 +172,18 @@ class OpenAIRealtimeClient:
         await self._send({"type": "response.create"})
 
     async def trigger_response(self) -> None:
-        """Manually trigger AI to generate a response (for initial greeting).\n        Waits for session to be ready before triggering."""
+        """Manually trigger AI to generate a response (for initial greeting).
+        Waits for session to be ready before triggering."""
         if not self.is_connected:
+            logger.warning("trigger_response_not_connected", call_id=self.call_id)
             return
-        # Wait up to 3 seconds for session.updated confirmation
+        # Wait up to 5 seconds for session.updated confirmation
         try:
-            await asyncio.wait_for(self._session_ready.wait(), timeout=3.0)
+            await asyncio.wait_for(self._session_ready.wait(), timeout=5.0)
+            logger.info("session_ready_confirmed", call_id=self.call_id)
         except asyncio.TimeoutError:
             logger.warning("openai_session_ready_timeout", call_id=self.call_id)
-            # Try anyway — session might still work
+        logger.info("sending_response_create", call_id=self.call_id)
         await self._send({"type": "response.create"})
 
     async def cancel_response(self) -> None:
