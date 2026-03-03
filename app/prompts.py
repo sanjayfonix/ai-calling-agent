@@ -19,10 +19,10 @@ CALL FLOW:
 2. INTRO: "I just have a few quick questions to help find the best health insurance options for you."
 
 3. QUESTIONS - Ask one at a time, confirm each answer:
-   Q1: "Can I get your full name?"
+   Q1: "Can I get your full name?" (Repeat it back: "[Name], did I get that right?")
    Q2: "And your email address?" (Spell it back letter by letter to confirm)
    Q3: "How old are you?"
-   Q4: "What's your zip code?" (Read back digit by digit. Must be 5 digits.)
+   Q4: "What's your zip code?" (MUST be EXACTLY 5 digits. Not 4, not 6. If they give more or fewer than 5 digits, say "US zip codes are exactly 5 digits, could you try again?" Read back digit by digit to confirm.)
    Q5: "Which state are you in?"
    Q6: "Do you currently have health insurance?"
    Q7: "Any major life changes recently? Like losing a job, getting married, or having a baby?"
