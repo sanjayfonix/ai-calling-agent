@@ -136,10 +136,10 @@ class CallManager:
         if self.twilio_handler and self.twilio_handler.is_connected:
             await self.twilio_handler.clear_audio()
 
-    async def _on_openai_audio(self, audio_b64: str) -> None:
-        """Audio from OpenAI (AI agent) → forward to Twilio as base64."""
+    async def _on_openai_audio(self, audio_bytes: bytes) -> None:
+        """Audio from OpenAI (AI agent) → forward to Twilio."""
         if self.twilio_handler and self.twilio_handler.is_connected:
-            await self.twilio_handler.send_audio_b64(audio_b64)
+            await self.twilio_handler.send_audio(audio_bytes)
 
     async def _on_transcript(self, role: str, content: str) -> None:
         """Store transcript entries from both sides."""
