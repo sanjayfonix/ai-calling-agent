@@ -150,10 +150,14 @@ class CallManager:
             await self.openai_client.send_audio(audio_b64.encode("utf-8"))
 
     async def _on_customer_speech_started(self) -> None:
-        """Customer started speaking — clear Twilio audio buffer for interruption."""
-        logger.info("customer_interruption", call_id=self.call_id)
-        if self.twilio_handler and self.twilio_handler.is_connected:
-            await self.twilio_handler.clear_audio()
+        """Customer started speaking — log only, let OpenAI VAD handle interruption natively.
+        
+        NOTE: We deliberately do NOT call clear_audio() here because OpenAI's
+        server-side VAD already handles interruptions. Clearing the Twilio buffer
+        on every speech detection (including ambient noise, breaths, etc.) was
+        causing the AI voice to cut out mid-sentence.
+        """
+        logger.info("customer_speech_detected", call_id=self.call_id)
 
     async def _on_openai_audio(self, audio_b64: str) -> None:
         """Audio from OpenAI (AI agent) → forward to Twilio as base64 directly."""
