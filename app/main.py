@@ -211,18 +211,14 @@ async def twilio_voice_webhook(request: Request):
 
 # ── Twilio Media Stream WebSocket ────────────────────────────
 @app.websocket("/ws/media-stream")
-async def media_stream_websocket(
-    websocket: WebSocket,
-    context_id: str | None = Query(None),
-):
+async def media_stream_websocket(websocket: WebSocket):
     """
     WebSocket endpoint for Twilio Media Streams.
     Each connection = one phone call.
-    Accepts optional context_id to load dynamic call context.
     """
-    logger.info("media_stream_ws_connecting", context_id=context_id)
+    logger.info("media_stream_ws_connecting")
 
-    manager = CallManager(websocket, context_id=context_id)
+    manager = CallManager(websocket)
     await manager.start()
 
 
@@ -342,10 +338,6 @@ async def initiate_dynamic_outbound_call(req: DynamicCallRequest):
         slots_count=req.slots_count,
     )
     
-    # Generate a temporary call ID
-    temp_call_id = f"temp_{uuid.uuid4()}"
-    store_call_context(temp_call_id, context)
-    
     logger.info(
         "dynamic_outbound_call_initiated",
         agent_id=req.agent_id,
@@ -356,8 +348,7 @@ async def initiate_dynamic_outbound_call(req: DynamicCallRequest):
     
     ws_scheme = "wss" if settings.base_url.startswith("https") else "ws"
     host = settings.base_url.replace("https://", "").replace("http://", "")
-    # Pass context_id in the websocket URL
-    websocket_url = f"{ws_scheme}://{host}/ws/media-stream?context_id={temp_call_id}"
+    websocket_url = f"{ws_scheme}://{host}/ws/media-stream"
     status_callback = f"{settings.base_url}/api/webhooks/call-status"
 
     try:
@@ -366,6 +357,15 @@ async def initiate_dynamic_outbound_call(req: DynamicCallRequest):
             websocket_url=websocket_url,
             status_callback_url=status_callback,
             record=req.record,
+        )
+        
+        # Store context with the actual call_sid now that we have it
+        store_call_context(call_sid, context)
+        
+        logger.info(
+            "call_context_stored",
+            call_sid=call_sid,
+            agent_name=req.agent_name,
         )
 
         return {

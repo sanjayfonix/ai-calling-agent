@@ -41,14 +41,13 @@ class CallManager:
 
     _active_calls: dict[str, "CallManager"] = {}
 
-    def __init__(self, websocket: WebSocket, context_id: str | None = None):
+    def __init__(self, websocket: WebSocket):
         self.settings = get_settings()
         self.websocket = websocket
         self.call_id: str | None = None
         self.call_sid: str | None = None
         self.stream_sid: str | None = None
         self.db_call_id: uuid.UUID | None = None
-        self.context_id = context_id
         self.call_context: CallContext | None = None
 
         self.twilio_handler: TwilioMediaStreamHandler | None = None
@@ -88,15 +87,12 @@ class CallManager:
 
         logger.info("call_connected", call_id=self.call_id, call_sid=call_sid)
 
-        # Retrieve call context if available
-        if self.context_id:
-            self.call_context = get_call_context(self.context_id)
-            if self.call_context:
-                logger.info("call_context_loaded", call_id=self.call_id, agent=self.call_context.agent_name)
-                # Update context with actual call_sid and remove temp entry
-                remove_call_context(self.context_id)
-                from app.call_context import store_call_context
-                store_call_context(call_sid, self.call_context)
+        # Retrieve call context by call_sid (stored when outbound call was initiated)
+        self.call_context = get_call_context(call_sid)
+        if self.call_context:
+            logger.info("call_context_loaded", call_id=self.call_id, agent=self.call_context.agent_name)
+        else:
+            logger.info("no_call_context", call_id=self.call_id, using_default_prompt=True)
 
         # Generate dynamic system prompt based on context
         system_prompt = generate_dynamic_system_prompt(self.call_context)
