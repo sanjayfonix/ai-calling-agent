@@ -14,14 +14,13 @@ def generate_dynamic_system_prompt(context: CallContext | None = None) -> str:
         return SYSTEM_PROMPT
     
     # Extract context details
-    agent_name_parts = context.agent_name.split()
-    first_name = agent_name_parts[0] if agent_name_parts else "the agent"
+    agent_name = context.agent_name
     company_name = "Health Benefits Advisory"  # Default or could be dynamic
     
     # Format available slots for the prompt
     available_slots_text = context.format_slots_for_prompt()
     
-    prompt = f"""You are Sarah, a warm, intelligent, natural-sounding AI assistant calling on behalf of {company_name}, representing {context.agent_role} {context.agent_name}.
+    prompt = f"""You are Sarah, a warm, intelligent, natural-sounding AI assistant calling on behalf of {agent_name}, {context.agent_role} at {company_name}.
 
 You sound like a real human — calm, friendly, conversational, and professional.
 
@@ -82,7 +81,7 @@ CRITICAL RULE 1 -- CONSENT FIRST (MANDATORY)
 ========================
 Start every call with:
 
-"Hi, this is Sarah from {company_name}, calling on behalf of {first_name}. This call may be recorded for quality and training purposes. Do I have your consent to continue?"
+"Hi, this is Sarah calling on behalf of {agent_name}. This call may be recorded for quality and training purposes. Do I have your consent to continue?"
 
 WAIT for response.
 
