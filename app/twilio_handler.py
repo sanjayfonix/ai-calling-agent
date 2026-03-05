@@ -112,15 +112,8 @@ class TwilioMediaStreamHandler:
             await self._on_call_start(self.call_sid, self.stream_sid)
 
     async def _handle_media(self, message: dict) -> None:
-        """Process audio from Twilio and forward to OpenAI.
-        Only forwards inbound (customer) audio, ignores outbound (AI echo)."""
+        """Process audio from Twilio and forward to OpenAI."""
         media = message.get("media", {})
-        track = media.get("track", "inbound")
-
-        # Only forward customer's inbound audio, never our own outbound audio
-        if track != "inbound":
-            return
-
         payload = media.get("payload", "")  # base64-encoded G.711 μ-law
 
         if payload and self._on_audio_received:
@@ -135,12 +128,24 @@ class TwilioMediaStreamHandler:
             return
 
         audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
-        await self.send_audio_b64(audio_b64)
+
+        message = {
+            "event": "media",
+            "streamSid": self.stream_sid,
+            "media": {
+                "payload": audio_b64,
+            },
+        }
+
+        try:
+            await self.ws.send_json(message)
+        except Exception as e:
+            logger.error("twilio_send_error", error=str(e))
 
     async def send_audio_b64(self, audio_b64: str) -> None:
         """
-        Send pre-encoded base64 audio directly to Twilio.
-        Avoids decode/re-encode when audio is already base64 from OpenAI.
+        Send base64-encoded audio from OpenAI back to Twilio.
+        Audio is already base64-encoded G.711 μ-law from OpenAI.
         """
         if not self._connected or not self.stream_sid:
             return
@@ -156,7 +161,7 @@ class TwilioMediaStreamHandler:
         try:
             await self.ws.send_json(message)
         except Exception as e:
-            logger.error("twilio_send_error", error=str(e))
+            logger.error("twilio_send_audio_b64_error", error=str(e))
 
     async def send_mark(self, name: str) -> None:
         """Send a mark event to Twilio for synchronization."""
