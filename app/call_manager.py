@@ -382,6 +382,21 @@ class CallManager:
         # Log final audio stats
         logger.info("call_audio_stats", call_id=self.call_id, stats=CallManager._audio_stats)
 
+        # Auto-save any in-memory collected data to database before webhook
+        if self._collected_data and self.db_call_id:
+            try:
+                async with async_session_factory() as session:
+                    encryptor = get_encryptor()
+                    repo = CustomerDataRepository(session, encryptor)
+                    # Remove internal tracking fields
+                    clean_data = {k: v for k, v in self._collected_data.items() if k != "consent_given"}
+                    if clean_data:
+                        await repo.create_or_update(self.db_call_id, clean_data)
+                        await session.commit()
+                        logger.info("auto_saved_collected_data", call_id=self.call_id, fields=list(clean_data.keys()))
+            except Exception as e:
+                logger.error("auto_save_data_error", call_id=self.call_id, error=str(e))
+
         # Send call results to Express backend
         await self._send_call_complete_webhook()
 
@@ -483,7 +498,14 @@ class CallManager:
             "transcript": transcript,
         }
 
-        logger.info("sending_call_complete_webhook", call_id=self.call_id, url=callback_url, has_customer_data=bool(final_customer_data))
+        logger.info(
+            "sending_call_complete_webhook",
+            call_id=self.call_id,
+            url=callback_url,
+            has_customer_data=bool(final_customer_data),
+            customer_fields=list(final_customer_data.keys()) if final_customer_data else [],
+            customer_data_preview=final_customer_data if final_customer_data else None,
+        )
 
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
@@ -584,7 +606,95 @@ class CallManager:
                             extracted["currently_insured"] = True
                         break
 
-        logger.info("transcript_data_extracted", call_id=self.call_id, fields=list(extracted.keys()))
+        # Extract doctor name
+        for msg in customer_messages:
+            doctor_match = re.search(r'(?:doctor|dr\.?)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)', msg, re.IGNORECASE)
+            if doctor_match:
+                extracted["doctor_name"] = doctor_match.group(1).title()
+                break
+
+        # Extract doctor specialty
+        specialties = ["cardiologist", "dermatologist", "neurologist", "oncologist", "pediatrician",
+                      "primary care", "family doctor", "general practitioner", "internist"]
+        for msg in customer_messages:
+            msg_lower = msg.lower()
+            for specialty in specialties:
+                if specialty in msg_lower:
+                    extracted["doctor_specialty"] = specialty.title()
+                    break
+            if "doctor_specialty" in extracted:
+                break
+
+        # Extract medications
+        for i, t in enumerate(transcript):
+            if t.get("role") == "agent" and any(word in t["content"].lower() for word in ["medication", "medicine", "prescription"]):
+                # Check next few customer responses for medicine names
+                medicines = []
+                for j in range(i + 1, min(i + 5, len(transcript))):
+                    if transcript[j].get("role") == "customer":
+                        msg = transcript[j]["content"]
+                        # Look for capitalized words that might be drug names
+                        med_matches = re.findall(r'\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]+)?)\b', msg)
+                        medicines.extend(med_matches)
+                if medicines:
+                    extracted["medicines"] = ", ".join(set(medicines))
+                    break
+
+        # Extract life event
+        life_events = {
+            "job loss": "job_loss",
+            "lost my job": "job_loss",
+            "unemployed": "job_loss",
+            "marriage": "marriage",
+            "married": "marriage",
+            "getting married": "marriage",
+            "baby": "baby",
+            "pregnant": "baby",
+            "expecting": "baby",
+            "newborn": "baby",
+            "moving": "moving",
+            "moved": "moving",
+            "relocating": "moving",
+        }
+        for msg in customer_messages:
+            msg_lower = msg.lower()
+            for phrase, event_type in life_events.items():
+                if phrase in msg_lower:
+                    extracted["life_event"] = event_type
+                    # Try to extract more details from the same message
+                    if len(msg) > len(phrase) + 20:
+                        extracted["life_event_details"] = msg[:200]
+                    break
+            if "life_event" in extracted:
+                break
+
+        # Extract preferred time slot from transcript
+        for i, t in enumerate(transcript):
+            if t.get("role") == "agent" and "appointment" in t["content"].lower():
+                # Check next customer response for time preference
+                for j in range(i + 1, min(i + 3, len(transcript))):
+                    if transcript[j].get("role") == "customer":
+                        msg = transcript[j]["content"]
+                        # Look for date/time patterns
+                        time_match = re.search(r'(morning|afternoon|evening|night|\d{1,2}:\d{2}|\d{1,2}\s*(?:am|pm))', msg, re.IGNORECASE)
+                        if time_match:
+                            extracted["preferred_time_slot"] = msg[:100]
+                        break
+                if "preferred_time_slot" in extracted:
+                    break
+
+        # Extract ACA-related info
+        for i, t in enumerate(transcript):
+            if t.get("role") == "customer" and "aca" in t["content"].lower():
+                extracted["wants_aca_explanation"] = True
+                # Check if agent explained it in next few messages
+                for j in range(i + 1, min(i + 5, len(transcript))):
+                    if transcript[j].get("role") == "agent" and len(transcript[j]["content"]) > 100:
+                        extracted["aca_explained"] = True
+                        break
+                break
+
+        logger.info("transcript_data_extracted", call_id=self.call_id, fields=list(extracted.keys()), extracted_data=extracted)
         return extracted
 
     @classmethod
