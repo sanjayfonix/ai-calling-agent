@@ -5,7 +5,7 @@ Dynamic prompt generation based on call context.
 from app.call_context import CallContext
 
 
-def generate_dynamic_system_prompt(context: CallContext | None = None) -> str:
+def generate_dynamic_system_prompt(context: CallContext | None=None) -> str:
     """Generate a personalized system prompt based on call context. """
     
     if context is None:

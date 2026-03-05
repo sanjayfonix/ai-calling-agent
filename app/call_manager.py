@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -60,6 +61,9 @@ class CallManager:
         self._call_ended = False
         self._cleaned_up = False
         self._greeting_sent = False
+        # In-memory tracking of collected data (survives even if save_customer_data is never called)
+        self._collected_data: dict[str, Any] = {}
+        self._transcript_buffer: list[dict] = []  # In-memory transcript backup
         # Reset audio stats for this call
         CallManager._audio_stats = {"openai_received": 0, "twilio_sent": 0, "skipped": 0}
 
@@ -192,8 +196,16 @@ class CallManager:
     # ── Transcripts ───────────────────────────────────────────
 
     async def _on_transcript(self, role: str, content: str) -> None:
-        """Store transcript in DB."""
-        if not content.strip() or not self.db_call_id:
+        """Store transcript in DB and in-memory buffer."""
+        if not content.strip():
+            return
+        # Always keep in-memory copy
+        self._transcript_buffer.append({
+            "role": role,
+            "content": content,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+        if not self.db_call_id:
             return
         logger.info("transcript", call_id=self.call_id, role=role, text=content[:80])
         try:
@@ -229,6 +241,9 @@ class CallManager:
 
         if consent:
             self._consent_received = True
+        
+        # Track consent in collected data
+        self._collected_data["consent_given"] = consent
 
         if self.db_call_id:
             try:
@@ -251,6 +266,10 @@ class CallManager:
                                "message": "Consent denied. End the call politely."})
 
     async def _handle_save_data(self, args: dict) -> str:
+        # Always store in memory first (survives even if DB fails)
+        self._collected_data.update(args)
+        logger.info("customer_data_collected", call_id=self.call_id, fields=list(args.keys()))
+
         if not self.db_call_id:
             return json.dumps({"error": "No active session"})
 
@@ -399,7 +418,7 @@ class CallManager:
         # Gather all call data
         customer_data = None
         transcript = []
-        consent_status = "pending"
+        consent_status = "granted" if self._consent_received else "pending"
         recording_url = None
 
         if self.db_call_id:
@@ -414,15 +433,42 @@ class CallManager:
                         consent_status = call_record.consent_status.value
                         recording_url = call_record.call_recording_url
                     
-                    # Get customer data
+                    # Get customer data from DB
                     cust_repo = CustomerDataRepository(session, encryptor)
                     customer_data = await cust_repo.get_by_call_session(self.db_call_id)
                     
-                    # Get transcript
+                    # Get transcript from DB
                     trans_repo = TranscriptRepository(session)
                     transcript = await trans_repo.get_transcript(self.db_call_id)
             except Exception as e:
                 logger.error("webhook_data_gather_error", call_id=self.call_id, error=str(e))
+
+        # Use in-memory transcript if DB transcript is empty
+        if not transcript and self._transcript_buffer:
+            transcript = self._transcript_buffer
+
+        # If consent was received in-memory but DB says pending, fix it
+        if self._consent_received and consent_status == "pending":
+            consent_status = "granted"
+
+        # BUILD CUSTOMER DATA: merge DB data + in-memory collected data + transcript extraction
+        # Priority: DB data > function call data > transcript extraction
+        final_customer_data = {}
+
+        # Layer 1: Extract from transcript (lowest priority, fallback)
+        extracted = self._extract_data_from_transcript(transcript)
+        if extracted:
+            final_customer_data.update(extracted)
+
+        # Layer 2: In-memory collected data from save_customer_data calls
+        if self._collected_data:
+            # Remove internal tracking fields
+            clean_collected = {k: v for k, v in self._collected_data.items() if k != "consent_given"}
+            final_customer_data.update(clean_collected)
+
+        # Layer 3: DB customer data (highest priority, overwrites)
+        if customer_data:
+            final_customer_data.update({k: v for k, v in customer_data.items() if v is not None})
 
         # Build payload
         payload = {
@@ -433,11 +479,11 @@ class CallManager:
             "agent_id": self.call_context.agent_id if self.call_context else None,
             "agent_name": self.call_context.agent_name if self.call_context else None,
             "to_number": self.call_context.to_number if self.call_context else None,
-            "customer_data": customer_data,
+            "customer_data": final_customer_data if final_customer_data else None,
             "transcript": transcript,
         }
 
-        logger.info("sending_call_complete_webhook", call_id=self.call_id, url=callback_url)
+        logger.info("sending_call_complete_webhook", call_id=self.call_id, url=callback_url, has_customer_data=bool(final_customer_data))
 
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
@@ -450,6 +496,96 @@ class CallManager:
                 )
         except Exception as e:
             logger.error("call_complete_webhook_error", call_id=self.call_id, error=str(e))
+
+    def _extract_data_from_transcript(self, transcript: list[dict]) -> dict:
+        """Extract customer data from conversation transcript as a fallback.
+        Parses customer responses to identify name, email, age, zip, state etc."""
+        extracted = {}
+        if not transcript:
+            return extracted
+
+        customer_messages = [t["content"] for t in transcript if t.get("role") == "customer"]
+        agent_messages = [t["content"] for t in transcript if t.get("role") == "agent"]
+        all_text = " ".join(customer_messages).lower()
+
+        # Extract email (look for @ pattern)
+        for msg in customer_messages:
+            email_match = re.search(r'[\w.+-]+\s*(?:at the rate|@)\s*[\w.-]+\.[a-z]{2,}', msg, re.IGNORECASE)
+            if email_match:
+                email = email_match.group(0)
+                # Normalize "at the rate" to @
+                email = re.sub(r'\s*at the rate\s*', '@', email, flags=re.IGNORECASE)
+                email = email.replace(' ', '')
+                extracted["email"] = email
+                break
+
+        # Also check agent confirmation for email
+        for msg in agent_messages:
+            email_match = re.search(r'[\w.+-]+@[\w.-]+\.[a-z]{2,}', msg, re.IGNORECASE)
+            if email_match:
+                extracted["email"] = email_match.group(0)
+
+        # Extract full name ("my name is X" or "I'm X" patterns)
+        for msg in customer_messages:
+            name_match = re.search(r'(?:my name is|i\'?m|this is)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)', msg, re.IGNORECASE)
+            if name_match:
+                extracted["full_name"] = name_match.group(1).title()
+                break
+
+        # Extract age ("I am X years old" or just a number in context)
+        for msg in customer_messages:
+            age_match = re.search(r'(?:i\'?m|i am|age is)\s*(\d{1,3})(?:\s*years)?', msg, re.IGNORECASE)
+            if age_match:
+                age = int(age_match.group(1))
+                if 18 <= age <= 120:
+                    extracted["age"] = age
+                    break
+
+        # Extract zip code (5 digit number)
+        for msg in customer_messages:
+            zip_match = re.search(r'\b(\d{5})\b', msg)
+            if zip_match:
+                extracted["zipcode"] = zip_match.group(1)
+                break
+
+        # Extract state from customer messages
+        us_states = [
+            "alabama", "alaska", "arizona", "arkansas", "california", "colorado",
+            "connecticut", "delaware", "florida", "georgia", "hawaii", "idaho",
+            "illinois", "indiana", "iowa", "kansas", "kentucky", "louisiana",
+            "maine", "maryland", "massachusetts", "michigan", "minnesota",
+            "mississippi", "missouri", "montana", "nebraska", "nevada",
+            "new hampshire", "new jersey", "new mexico", "new york",
+            "north carolina", "north dakota", "ohio", "oklahoma", "oregon",
+            "pennsylvania", "rhode island", "south carolina", "south dakota",
+            "tennessee", "texas", "utah", "vermont", "virginia", "washington",
+            "west virginia", "wisconsin", "wyoming"
+        ]
+        for msg in customer_messages:
+            msg_lower = msg.lower()
+            for state in us_states:
+                if state in msg_lower:
+                    extracted["state"] = state.title()
+                    break
+            if "state" in extracted:
+                break
+
+        # Extract insurance status
+        # Look at customer responses after agent asks about insurance
+        for i, t in enumerate(transcript):
+            if t.get("role") == "agent" and "insurance" in t["content"].lower() and "coverage" in t["content"].lower():
+                # Check next customer responses
+                for j in range(i + 1, min(i + 3, len(transcript))):
+                    if transcript[j].get("role") == "customer":
+                        resp = transcript[j]["content"].lower()
+                        if any(w in resp for w in ["no", "don't", "not", "nope"]):
+                            extracted["currently_insured"] = False
+                        elif any(w in resp for w in ["yes", "yeah", "yep", "i do", "i have"]):
+                            extracted["currently_insured"] = True
+                        break
+
+        logger.info("transcript_data_extracted", call_id=self.call_id, fields=list(extracted.keys()))
+        return extracted
 
     @classmethod
     def get_active_call(cls, call_sid: str) -> "CallManager | None":

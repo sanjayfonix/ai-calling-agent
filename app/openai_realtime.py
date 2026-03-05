@@ -46,7 +46,7 @@ class OpenAIRealtimeClient:
         on_error: Callable[[str], Awaitable[None]] | None=None,
         on_session_end: Callable[[], Awaitable[None]] | None=None,
         on_speech_started: Callable[[], Awaitable[None]] | None=None,
-        system_prompt: str | None = None,
+        system_prompt: str | None=None,
     ):
         self.call_id = call_id
         self.settings = get_settings()
@@ -171,7 +171,7 @@ class OpenAIRealtimeClient:
         # Trigger response generation
         await self._send({"type": "response.create"})
 
-    async def wait_for_session_ready(self, timeout: float = 5.0) -> bool:
+    async def wait_for_session_ready(self, timeout: float=5.0) -> bool:
         """Wait for session.updated confirmation from OpenAI."""
         try:
             await asyncio.wait_for(self._session_ready.wait(), timeout)
