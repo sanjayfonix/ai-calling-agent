@@ -131,6 +131,24 @@ async def health_check():
     }
 
 
+# ── Debug: Show TwiML and WebSocket URL ──────────────────────
+@app.get("/api/debug/twiml")
+async def debug_twiml():
+    """Debug endpoint to verify TwiML generation and WebSocket URL."""
+    settings = get_settings()
+    ws_scheme = "wss" if settings.base_url.startswith("https") else "ws"
+    host = settings.base_url.replace("https://", "").replace("http://", "")
+    websocket_url = f"{ws_scheme}://{host}/ws/media-stream"
+    twiml = generate_media_stream_twiml(websocket_url)
+    return {
+        "base_url": settings.base_url,
+        "websocket_url": websocket_url,
+        "openai_model": settings.openai_realtime_model,
+        "openai_voice": settings.openai_realtime_voice,
+        "twiml": twiml,
+    }
+
+
 # ── Dynamic Twilio Voice Webhook (from Express Backend) ──────
 @app.get("/twilio/voice")
 async def dynamic_twilio_voice_webhook(
@@ -308,6 +326,7 @@ class DynamicCallRequest(BaseModel):
     slots: str = Field(..., description="Comma-separated slots (e.g., '2026-03-05|09:00,2026-03-05|09:30')")
     slots_count: int
     record: bool = True
+    callback_url: str = Field("https://xd363v4j-5000.inc1.devtunnels.ms/api/ai-call/call-complete", description="URL to POST call results when call completes")
 
 
 # ── Dynamic Outbound Call (with Agent Context) ──────────────
@@ -337,6 +356,8 @@ async def initiate_dynamic_outbound_call(req: DynamicCallRequest):
         plan_name=req.plan_name,
         slots=slots_list,
         slots_count=req.slots_count,
+        callback_url=req.callback_url,
+        to_number=req.to_number,
     )
     
     logger.info(

@@ -19,6 +19,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+import httpx
 from starlette.websockets import WebSocket
 from twilio.rest import Client as TwilioClient
 import structlog
@@ -131,6 +132,7 @@ class CallManager:
                     system_prompt=system_prompt,
                 )
                 await self.openai_client.connect()
+                logger.info("openai_connected_ok", call_id=self.call_id, attempt=attempt)
                 break
             except Exception as e:
                 logger.error("openai_connect_failed", call_id=self.call_id, attempt=attempt, error=str(e))
@@ -138,9 +140,16 @@ class CallManager:
                     return
                 await asyncio.sleep(0.5)
 
+        # Wait for session config to be confirmed by OpenAI before triggering greeting
+        if self.openai_client and self.openai_client.is_connected:
+            session_ready = await self.openai_client.wait_for_session_ready(timeout=5.0)
+            if not session_ready:
+                logger.warning("session_not_ready_proceeding_anyway", call_id=self.call_id)
+
         # Send initial greeting
         if self.openai_client and self.openai_client.is_connected and not self._greeting_sent:
             self._greeting_sent = True
+            logger.info("triggering_initial_greeting", call_id=self.call_id)
             await self.openai_client.trigger_response()
 
     async def _on_call_ended(self) -> None:
@@ -351,6 +360,12 @@ class CallManager:
             return
         self._cleaned_up = True
 
+        # Log final audio stats
+        logger.info("call_audio_stats", call_id=self.call_id, stats=CallManager._audio_stats)
+
+        # Send call results to Express backend
+        await self._send_call_complete_webhook()
+
         if self.call_sid and self.call_sid in CallManager._active_calls:
             del CallManager._active_calls[self.call_sid]
             # Clean up call context
@@ -370,6 +385,71 @@ class CallManager:
                 logger.error("cleanup_db_error", error=str(e))
 
         logger.info("call_cleaned_up", call_id=self.call_id)
+
+    async def _send_call_complete_webhook(self) -> None:
+        """Send call results to the Express backend when call completes."""
+        callback_url = ""
+        if self.call_context and self.call_context.callback_url:
+            callback_url = self.call_context.callback_url
+        
+        if not callback_url:
+            logger.info("no_callback_url_skipping_webhook", call_id=self.call_id)
+            return
+
+        # Gather all call data
+        customer_data = None
+        transcript = []
+        consent_status = "pending"
+        recording_url = None
+
+        if self.db_call_id:
+            try:
+                async with async_session_factory() as session:
+                    encryptor = get_encryptor()
+                    
+                    # Get call session
+                    call_repo = CallSessionRepository(session, encryptor)
+                    call_record = await call_repo.get_by_id(self.db_call_id)
+                    if call_record:
+                        consent_status = call_record.consent_status.value
+                        recording_url = call_record.call_recording_url
+                    
+                    # Get customer data
+                    cust_repo = CustomerDataRepository(session, encryptor)
+                    customer_data = await cust_repo.get_by_call_session(self.db_call_id)
+                    
+                    # Get transcript
+                    trans_repo = TranscriptRepository(session)
+                    transcript = await trans_repo.get_transcript(self.db_call_id)
+            except Exception as e:
+                logger.error("webhook_data_gather_error", call_id=self.call_id, error=str(e))
+
+        # Build payload
+        payload = {
+            "call_sid": self.call_sid,
+            "status": "completed",
+            "consent_status": consent_status,
+            "recording_url": recording_url,
+            "agent_id": self.call_context.agent_id if self.call_context else None,
+            "agent_name": self.call_context.agent_name if self.call_context else None,
+            "to_number": self.call_context.to_number if self.call_context else None,
+            "customer_data": customer_data,
+            "transcript": transcript,
+        }
+
+        logger.info("sending_call_complete_webhook", call_id=self.call_id, url=callback_url)
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(callback_url, json=payload)
+                logger.info(
+                    "call_complete_webhook_sent",
+                    call_id=self.call_id,
+                    status_code=response.status_code,
+                    response=response.text[:200] if response.text else "",
+                )
+        except Exception as e:
+            logger.error("call_complete_webhook_error", call_id=self.call_id, error=str(e))
 
     @classmethod
     def get_active_call(cls, call_sid: str) -> "CallManager | None":

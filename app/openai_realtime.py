@@ -40,7 +40,7 @@ class OpenAIRealtimeClient:
     def __init__(
         self,
         call_id: str,
-        on_audio_delta: Callable[[bytes], Awaitable[None]] | None=None,
+        on_audio_delta: Callable[[str], Awaitable[None]] | None=None,
         on_transcript: Callable[[str, str], Awaitable[None]] | None=None,
         on_function_call: Callable[[str, dict], Awaitable[str]] | None=None,
         on_error: Callable[[str], Awaitable[None]] | None=None,
@@ -55,6 +55,7 @@ class OpenAIRealtimeClient:
         self._connected = False
         self._current_response_id: str | None = None
         self._system_prompt = system_prompt or SYSTEM_PROMPT
+        self._session_ready = asyncio.Event()
 
         # Event handlers
         self._on_audio_delta = on_audio_delta
@@ -134,18 +135,17 @@ class OpenAIRealtimeClient:
         await self._send(session_config)
         logger.info("openai_session_configured", call_id=self.call_id)
 
-    async def send_audio(self, audio_bytes: bytes) -> None:
+    async def send_audio(self, audio_b64: str) -> None:
         """
-        Send audio data to OpenAI Realtime API.
-        Audio should be base64-encoded G.711 u-law from Twilio.
+        Send base64-encoded audio data to OpenAI Realtime API.
+        Audio is base64-encoded G.711 μ-law from Twilio.
         """
         if not self.is_connected:
             return
 
-        # Twilio sends base64-encoded audio — send it directly
         event = {
             "type": "input_audio_buffer.append",
-            "audio": audio_bytes.decode("utf-8") if isinstance(audio_bytes, bytes) else audio_bytes,
+            "audio": audio_b64,
         }
         await self._send(event)
 
@@ -171,11 +171,26 @@ class OpenAIRealtimeClient:
         # Trigger response generation
         await self._send({"type": "response.create"})
 
+    async def wait_for_session_ready(self, timeout: float = 5.0) -> bool:
+        """Wait for session.updated confirmation from OpenAI."""
+        try:
+            await asyncio.wait_for(self._session_ready.wait(), timeout)
+            logger.info("session_ready_confirmed", call_id=self.call_id)
+            return True
+        except asyncio.TimeoutError:
+            logger.error("session_ready_timeout", call_id=self.call_id, timeout=timeout)
+            return False
+
     async def trigger_response(self) -> None:
         """Manually trigger AI to generate a response (for initial greeting)."""
         if not self.is_connected:
             return
-        await self._send({"type": "response.create"})
+        await self._send({
+            "type": "response.create",
+            "response": {
+                "modalities": ["text", "audio"],
+            },
+        })
 
     async def cancel_response(self) -> None:
         """Cancel the current AI response (for barge-in/interruption).
@@ -281,6 +296,7 @@ class OpenAIRealtimeClient:
 
             case "session.updated":
                 logger.info("openai_session_updated", call_id=self.call_id)
+                self._session_ready.set()
 
             # ── Audio Events ─────────────────────────────
             case "response.audio.delta":

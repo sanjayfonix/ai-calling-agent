@@ -15,6 +15,7 @@ def generate_dynamic_system_prompt(context: CallContext | None = None) -> str:
     
     # Extract context details
     agent_name = context.agent_name
+    first_name = agent_name.split()[0] if agent_name else "the agent"
     company_name = "Health Benefits Advisory"  # Default or could be dynamic
     
     # Format available slots for the prompt

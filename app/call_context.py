@@ -23,6 +23,8 @@ class CallContext(BaseModel):
     slots: List[str]  # Available slots in format: "2026-03-05|09:00"
     slots_count: int
     booked_slots: List[str] = []  # Slots already booked
+    callback_url: str = ""  # URL to POST call results when call completes
+    to_number: str = ""  # Phone number being called
     
     @property
     def available_slots(self) -> List[str]:
