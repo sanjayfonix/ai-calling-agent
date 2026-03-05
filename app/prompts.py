@@ -315,4 +315,19 @@ TOOL_DEFINITIONS = [
             "required": ["reason"],
         },
     },
+    {
+        "type": "function",
+        "name": "check_slot_availability",
+        "description": "Check if a requested appointment time slot is available. Use this when the customer mentions a preferred time. Returns whether the slot is available and suggests alternatives if not.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "requested_slot": {
+                    "type": "string",
+                    "description": "The time slot requested by the customer (e.g., '9 AM tomorrow', '2026-03-05 09:00', 'tomorrow at 2 PM')",
+                },
+            },
+            "required": ["requested_slot"],
+        },
+    },
 ]

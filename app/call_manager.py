@@ -30,6 +30,8 @@ from app.models import CallStatus, ConsentStatus
 from app.openai_realtime import OpenAIRealtimeClient
 from app.repository import CallSessionRepository, CustomerDataRepository, TranscriptRepository
 from app.twilio_handler import TwilioMediaStreamHandler
+from app.call_context import CallContext, get_call_context, remove_call_context
+from app.dynamic_prompts import generate_dynamic_system_prompt
 
 logger = structlog.get_logger(__name__)
 
@@ -39,13 +41,15 @@ class CallManager:
 
     _active_calls: dict[str, "CallManager"] = {}
 
-    def __init__(self, websocket: WebSocket):
+    def __init__(self, websocket: WebSocket, context_id: str | None = None):
         self.settings = get_settings()
         self.websocket = websocket
         self.call_id: str | None = None
         self.call_sid: str | None = None
         self.stream_sid: str | None = None
         self.db_call_id: uuid.UUID | None = None
+        self.context_id = context_id
+        self.call_context: CallContext | None = None
 
         self.twilio_handler: TwilioMediaStreamHandler | None = None
         self.openai_client: OpenAIRealtimeClient | None = None
@@ -84,6 +88,19 @@ class CallManager:
 
         logger.info("call_connected", call_id=self.call_id, call_sid=call_sid)
 
+        # Retrieve call context if available
+        if self.context_id:
+            self.call_context = get_call_context(self.context_id)
+            if self.call_context:
+                logger.info("call_context_loaded", call_id=self.call_id, agent=self.call_context.agent_name)
+                # Update context with actual call_sid and remove temp entry
+                remove_call_context(self.context_id)
+                from app.call_context import store_call_context
+                store_call_context(call_sid, self.call_context)
+
+        # Generate dynamic system prompt based on context
+        system_prompt = generate_dynamic_system_prompt(self.call_context)
+
         # Create DB record (non-fatal if fails)
         try:
             async with async_session_factory() as session:
@@ -111,6 +128,7 @@ class CallManager:
                     on_error=self._on_openai_error,
                     on_session_end=self._on_openai_session_end,
                     on_speech_started=self._on_customer_speech_started,
+                    system_prompt=system_prompt,
                 )
                 await self.openai_client.connect()
                 break
@@ -183,6 +201,8 @@ class CallManager:
                 return await self._handle_save_data(fn_args)
             elif fn_name == "end_call":
                 return await self._handle_end_call(fn_args)
+            elif fn_name == "check_slot_availability":
+                return await self._handle_check_slot(fn_args)
             else:
                 return json.dumps({"error": f"Unknown function: {fn_name}"})
         except Exception as e:
@@ -233,6 +253,42 @@ class CallManager:
         except Exception as e:
             logger.error("save_data_error", error=str(e))
             return json.dumps({"error": f"Save failed: {str(e)}"})
+
+    async def _handle_check_slot(self, args: dict) -> str:
+        """Check if a requested appointment slot is available."""
+        requested_slot = args.get("requested_slot", "")
+        
+        if not self.call_context:
+            return json.dumps({
+                "available": True,
+                "message": "No slot restrictions. Any time works.",
+            })
+        
+        # Get available slots
+        available_slots = self.call_context.available_slots
+        
+        if not available_slots:
+            return json.dumps({
+                "available": False,
+                "message": "No slots currently available.",
+                "alternatives": [],
+            })
+        
+        # Simple check - just see if any slots exist
+        # In a real implementation, would parse the requested_slot and match against available_slots
+        # For now, return the first 3 available slots as alternatives
+        alternatives = available_slots[:3]
+        formatted_alternatives = []
+        for slot in alternatives:
+            date_str, time_str = self.call_context.parse_slot_datetime(slot)
+            formatted_alternatives.append(f"{date_str} at {time_str}")
+        
+        return json.dumps({
+            "available": True,
+            "message": f"Available slots: {', '.join(formatted_alternatives)}",
+            "alternatives": formatted_alternatives,
+            "total_available": len(available_slots),
+        })
 
     async def _handle_end_call(self, args: dict) -> str:
         reason = args.get("reason", "completed")
@@ -291,6 +347,8 @@ class CallManager:
 
         if self.call_sid and self.call_sid in CallManager._active_calls:
             del CallManager._active_calls[self.call_sid]
+            # Clean up call context
+            remove_call_context(self.call_sid)
 
         if self.openai_client:
             await self.openai_client.disconnect()

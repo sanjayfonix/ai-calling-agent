@@ -39,6 +39,7 @@ from app.repository import (
     TranscriptRepository,
 )
 from app.twilio_service import generate_media_stream_twiml, make_outbound_call
+from app.call_context import CallContext, store_call_context
 
 logger = structlog.get_logger(__name__)
 
@@ -129,6 +130,64 @@ async def health_check():
     )
 
 
+# ── Dynamic Twilio Voice Webhook (from Express Backend) ──────
+@app.get("/twilio/voice")
+async def dynamic_twilio_voice_webhook(
+    agent_id: int,
+    agent_name: str,
+    agent_email: str,
+    agent_phone: str,
+    agent_npn: str,
+    agent_role: str,
+    plan_name: str,
+    slots: str,  # Comma-separated slots: "2026-03-05|09:00,2026-03-05|09:30,..."
+    slots_count: int,
+):
+    """
+    Endpoint called by Express backend with dynamic call context.
+    Receives agent info and available slots, then returns TwiML to initiate the call.
+    """
+    settings = get_settings()
+    
+    # Parse slots from comma-separated string
+    slots_list = [s.strip() for s in slots.split(",") if s.strip()]
+    
+    # Create call context
+    context = CallContext(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        agent_email=agent_email,
+        agent_phone=agent_phone,
+        agent_npn=agent_npn,
+        agent_role=agent_role,
+        plan_name=plan_name,
+        slots=slots_list,
+        slots_count=slots_count,
+    )
+    
+    # Generate a temporary call ID (will be replaced with actual call_sid)
+    temp_call_id = f"temp_{uuid.uuid4()}"
+    store_call_context(temp_call_id, context)
+    
+    logger.info(
+        "dynamic_call_context_received",
+        agent_id=agent_id,
+        agent_name=agent_name,
+        plan_name=plan_name,
+        available_slots=len(slots_list),
+    )
+    
+    # Build WebSocket URL
+    ws_scheme = "wss" if settings.base_url.startswith("https") else "ws"
+    host = settings.base_url.replace("https://", "").replace("http://", "")
+    # Pass the temp_call_id as a query param so the WebSocket can retrieve context
+    websocket_url = f"{ws_scheme}://{host}/ws/media-stream?context_id={temp_call_id}"
+    
+    twiml = generate_media_stream_twiml(websocket_url)
+    
+    return PlainTextResponse(content=twiml, media_type="application/xml")
+
+
 # ── Twilio Inbound Voice Webhook ─────────────────────────────
 @app.post("/api/webhooks/twilio-voice")
 async def twilio_voice_webhook(request: Request):
@@ -152,14 +211,18 @@ async def twilio_voice_webhook(request: Request):
 
 # ── Twilio Media Stream WebSocket ────────────────────────────
 @app.websocket("/ws/media-stream")
-async def media_stream_websocket(websocket: WebSocket):
+async def media_stream_websocket(
+    websocket: WebSocket,
+    context_id: str | None = Query(None),
+):
     """
     WebSocket endpoint for Twilio Media Streams.
     Each connection = one phone call.
+    Accepts optional context_id to load dynamic call context.
     """
-    logger.info("media_stream_ws_connecting")
+    logger.info("media_stream_ws_connecting", context_id=context_id)
 
-    manager = CallManager(websocket)
+    manager = CallManager(websocket, context_id=context_id)
     await manager.start()
 
 
