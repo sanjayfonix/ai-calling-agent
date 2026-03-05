@@ -299,45 +299,47 @@ async def recording_status_webhook(request: Request):
     return PlainTextResponse("OK")
 
 
+class DynamicCallRequest(BaseModel):
+    to_number: str = Field(..., description="Phone number to call (E.164 format)")
+    agent_id: int
+    agent_name: str
+    agent_email: str
+    agent_phone: str
+    agent_npn: str
+    agent_role: str
+    plan_name: str
+    slots: str = Field(..., description="Comma-separated slots (e.g., '2026-03-05|09:00,2026-03-05|09:30')")
+    slots_count: int
+    record: bool = True
+
+
 # ── Dynamic Outbound Call (with Agent Context) ──────────────
 @app.post("/api/calls/outbound-dynamic")
-async def initiate_dynamic_outbound_call(
-    to_number: str,
-    agent_id: int,
-    agent_name: str,
-    agent_email: str,
-    agent_phone: str,
-    agent_npn: str,
-    agent_role: str,
-    plan_name: str,
-    slots: str,  # Comma-separated
-    slots_count: int,
-    record: bool = True,
-):
+async def initiate_dynamic_outbound_call(req: DynamicCallRequest):
     """Initiate an outbound call with dynamic agent context and appointment slots."""
     settings = get_settings()
 
     # Validate phone number format
-    if not to_number.startswith("+"):
+    if not req.to_number.startswith("+"):
         raise HTTPException(
             status_code=400,
             detail="Phone number must be in E.164 format (e.g., +1234567890)",
         )
 
     # Parse slots from comma-separated string
-    slots_list = [s.strip() for s in slots.split(",") if s.strip()]
+    slots_list = [s.strip() for s in req.slots.split(",") if s.strip()]
     
     # Create call context
     context = CallContext(
-        agent_id=agent_id,
-        agent_name=agent_name,
-        agent_email=agent_email,
-        agent_phone=agent_phone,
-        agent_npn=agent_npn,
-        agent_role=agent_role,
-        plan_name=plan_name,
+        agent_id=req.agent_id,
+        agent_name=req.agent_name,
+        agent_email=req.agent_email,
+        agent_phone=req.agent_phone,
+        agent_npn=req.agent_npn,
+        agent_role=req.agent_role,
+        plan_name=req.plan_name,
         slots=slots_list,
-        slots_count=slots_count,
+        slots_count=req.slots_count,
     )
     
     # Generate a temporary call ID
@@ -346,9 +348,9 @@ async def initiate_dynamic_outbound_call(
     
     logger.info(
         "dynamic_outbound_call_initiated",
-        agent_id=agent_id,
-        agent_name=agent_name,
-        to_number=to_number,
+        agent_id=req.agent_id,
+        agent_name=req.agent_name,
+        to_number=req.to_number,
         available_slots=len(slots_list),
     )
     
@@ -360,17 +362,17 @@ async def initiate_dynamic_outbound_call(
 
     try:
         call_sid = await make_outbound_call(
-            to_number=to_number,
+            to_number=req.to_number,
             websocket_url=websocket_url,
             status_callback_url=status_callback,
-            record=record,
+            record=req.record,
         )
 
         return {
             "call_sid": call_sid,
             "status": "initiated",
-            "message": f"Dynamic call initiated to {to_number}",
-            "agent_name": agent_name,
+            "message": f"Dynamic call initiated to {req.to_number}",
+            "agent_name": req.agent_name,
             "available_slots": len(slots_list),
         }
     except Exception as e:
