@@ -168,15 +168,19 @@ class CallManager:
             await self.openai_client.send_audio(audio_b64)
 
     async def _on_openai_audio(self, audio_b64: str) -> None:
-        """AI audio from OpenAI -> forward to Twilio."""
+        """AI audio from OpenAI -> forward to Twilio.
+        
+        CRITICAL: No per-chunk logging here. Each log call is async I/O that
+        introduces micro-delays in the audio pipeline, causing choppy playback
+        and false VAD triggers (especially with Bluetooth headsets like AirPods
+        where latency amplifies the echo feedback loop).
+        """
         CallManager._audio_stats["openai_received"] += 1
-        logger.info("audio_forwarding", call_id=self.call_id, audio_len=len(audio_b64) if audio_b64 else 0, twilio_connected=self.twilio_handler.is_connected if self.twilio_handler else False, stream_sid=self.stream_sid)
         if self.twilio_handler and self.twilio_handler.is_connected:
             await self.twilio_handler.send_audio_b64(audio_b64)
             CallManager._audio_stats["twilio_sent"] += 1
         else:
             CallManager._audio_stats["skipped"] += 1
-            logger.warning("audio_forward_skipped", call_id=self.call_id, has_handler=bool(self.twilio_handler), is_connected=self.twilio_handler.is_connected if self.twilio_handler else None)
 
     async def _on_customer_speech_started(self) -> None:
         """Customer started speaking (detected by OpenAI's server VAD).
