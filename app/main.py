@@ -299,6 +299,85 @@ async def recording_status_webhook(request: Request):
     return PlainTextResponse("OK")
 
 
+# ── Dynamic Outbound Call (with Agent Context) ──────────────
+@app.post("/api/calls/outbound-dynamic")
+async def initiate_dynamic_outbound_call(
+    to_number: str,
+    agent_id: int,
+    agent_name: str,
+    agent_email: str,
+    agent_phone: str,
+    agent_npn: str,
+    agent_role: str,
+    plan_name: str,
+    slots: str,  # Comma-separated
+    slots_count: int,
+    record: bool = True,
+):
+    """Initiate an outbound call with dynamic agent context and appointment slots."""
+    settings = get_settings()
+
+    # Validate phone number format
+    if not to_number.startswith("+"):
+        raise HTTPException(
+            status_code=400,
+            detail="Phone number must be in E.164 format (e.g., +1234567890)",
+        )
+
+    # Parse slots from comma-separated string
+    slots_list = [s.strip() for s in slots.split(",") if s.strip()]
+    
+    # Create call context
+    context = CallContext(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        agent_email=agent_email,
+        agent_phone=agent_phone,
+        agent_npn=agent_npn,
+        agent_role=agent_role,
+        plan_name=plan_name,
+        slots=slots_list,
+        slots_count=slots_count,
+    )
+    
+    # Generate a temporary call ID
+    temp_call_id = f"temp_{uuid.uuid4()}"
+    store_call_context(temp_call_id, context)
+    
+    logger.info(
+        "dynamic_outbound_call_initiated",
+        agent_id=agent_id,
+        agent_name=agent_name,
+        to_number=to_number,
+        available_slots=len(slots_list),
+    )
+    
+    ws_scheme = "wss" if settings.base_url.startswith("https") else "ws"
+    host = settings.base_url.replace("https://", "").replace("http://", "")
+    # Pass context_id in the websocket URL
+    websocket_url = f"{ws_scheme}://{host}/ws/media-stream?context_id={temp_call_id}"
+    status_callback = f"{settings.base_url}/api/webhooks/call-status"
+
+    try:
+        call_sid = await make_outbound_call(
+            to_number=to_number,
+            websocket_url=websocket_url,
+            status_callback_url=status_callback,
+            record=record,
+        )
+
+        return {
+            "call_sid": call_sid,
+            "status": "initiated",
+            "message": f"Dynamic call initiated to {to_number}",
+            "agent_name": agent_name,
+            "available_slots": len(slots_list),
+        }
+    except Exception as e:
+        logger.error("dynamic_outbound_call_error", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to initiate call: {str(e)}")
+
+
 # ── Outbound Call ────────────────────────────────────────────
 @app.post("/api/calls/outbound", response_model=OutboundCallResponse)
 async def initiate_outbound_call(req: OutboundCallRequest):
