@@ -40,6 +40,8 @@ class CallManager:
     """Manages one phone call end-to-end."""
 
     _active_calls: dict[str, "CallManager"] = {}
+    # Audio debug counters (class-level, reset per call)
+    _audio_stats: dict[str, int] = {"openai_received": 0, "twilio_sent": 0, "skipped": 0}
 
     def __init__(self, websocket: WebSocket):
         self.settings = get_settings()
@@ -57,6 +59,8 @@ class CallManager:
         self._call_ended = False
         self._cleaned_up = False
         self._greeting_sent = False
+        # Reset audio stats for this call
+        CallManager._audio_stats = {"openai_received": 0, "twilio_sent": 0, "skipped": 0}
 
     async def start(self) -> None:
         """Entry point: handle the complete call lifecycle."""
@@ -152,8 +156,14 @@ class CallManager:
 
     async def _on_openai_audio(self, audio_b64: str) -> None:
         """AI audio from OpenAI -> forward to Twilio."""
+        CallManager._audio_stats["openai_received"] += 1
+        logger.info("audio_forwarding", call_id=self.call_id, audio_len=len(audio_b64) if audio_b64 else 0, twilio_connected=self.twilio_handler.is_connected if self.twilio_handler else False, stream_sid=self.stream_sid)
         if self.twilio_handler and self.twilio_handler.is_connected:
             await self.twilio_handler.send_audio_b64(audio_b64)
+            CallManager._audio_stats["twilio_sent"] += 1
+        else:
+            CallManager._audio_stats["skipped"] += 1
+            logger.warning("audio_forward_skipped", call_id=self.call_id, has_handler=bool(self.twilio_handler), is_connected=self.twilio_handler.is_connected if self.twilio_handler else None)
 
     async def _on_customer_speech_started(self) -> None:
         """Customer started speaking (detected by OpenAI's server VAD).
@@ -368,3 +378,7 @@ class CallManager:
     @classmethod
     def get_active_calls_count(cls) -> int:
         return len(cls._active_calls)
+
+    @classmethod
+    def get_audio_stats(cls) -> dict:
+        return cls._audio_stats.copy()

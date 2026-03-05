@@ -148,6 +148,7 @@ class TwilioMediaStreamHandler:
         Audio is already base64-encoded G.711 μ-law from OpenAI.
         """
         if not self._connected or not self.stream_sid:
+            logger.warning("twilio_send_skipped", connected=self._connected, stream_sid=self.stream_sid)
             return
 
         message = {
@@ -160,8 +161,9 @@ class TwilioMediaStreamHandler:
 
         try:
             await self.ws.send_json(message)
+            logger.info("twilio_audio_sent", stream_sid=self.stream_sid, payload_len=len(audio_b64))
         except Exception as e:
-            logger.error("twilio_send_audio_b64_error", error=str(e))
+            logger.error("twilio_send_audio_b64_error", error=str(e), stream_sid=self.stream_sid)
 
     async def send_mark(self, name: str) -> None:
         """Send a mark event to Twilio for synchronization."""

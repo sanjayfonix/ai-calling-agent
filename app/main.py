@@ -119,15 +119,16 @@ class HealthResponse(BaseModel):
 
 
 # ── Health Check ─────────────────────────────────────────────
-@app.get("/api/health", response_model=HealthResponse)
+@app.get("/api/health")
 async def health_check():
     """Health check endpoint."""
-    return HealthResponse(
-        status="healthy",
-        version="1.0.0",
-        active_calls=CallManager.get_active_calls_count(),
-        timestamp=datetime.now(timezone.utc).isoformat(),
-    )
+    return {
+        "status": "healthy",
+        "version": "1.0.0",
+        "active_calls": CallManager.get_active_calls_count(),
+        "audio_stats": CallManager.get_audio_stats(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 # ── Dynamic Twilio Voice Webhook (from Express Backend) ──────
