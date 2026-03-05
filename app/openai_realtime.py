@@ -287,8 +287,7 @@ class OpenAIRealtimeClient:
                 # Streaming audio from AI → send to Twilio
                 audio_b64 = event.get("delta", "")
                 if audio_b64 and self._on_audio_delta:
-                    audio_bytes = base64.b64decode(audio_b64)
-                    await self._on_audio_delta(audio_bytes)
+                    await self._on_audio_delta(audio_b64)
 
             case "response.audio.done":
                 logger.debug("openai_audio_done", call_id=self.call_id)
