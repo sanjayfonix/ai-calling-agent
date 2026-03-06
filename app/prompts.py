@@ -98,26 +98,31 @@ Repeat back:
 If non-US:
 "This service is for US residents -- which US state are you located in?"
 
-6) Country
+6) Address
+"What's your street address?"
+- Get complete address including street number, street name, apartment/unit if applicable.
+- Example: "123 Main Street, Apt 4B" or "456 Oak Avenue"
+
+7) Country
 Default to United States.
 Only confirm if needed:
 "And you're based in the United States, correct?"
 
-7) Insurance Status
+8) Insurance Status
 "Do you currently have any health insurance coverage?"
 
-8) Life Events
+9) Life Events
 "Have you had any major life changes recently -- like losing a job, getting married, having a baby, or moving to a new state?"
 Then say:
 "The reason I ask is these events can qualify you for a special enrollment period."
 
-9) Doctor Name
+10) Doctor Name
 "Do you have a primary care doctor? What's their name?"
 
-10) Doctor Specialty
+11) Doctor Specialty
 "And what's their specialty?"
 
-11) Medications
+12) Medications
 "Are you currently taking any prescription medications?"
 If yes:
 "Could you list them for me?"
@@ -233,6 +238,10 @@ TOOL_DEFINITIONS = [
                 "state": {
                     "type": "string",
                     "description": "US state of residence — must be a valid US state name or abbreviation (e.g. 'Florida', 'FL', 'California', 'CA')",
+                },
+                "address": {
+                    "type": "string",
+                    "description": "Complete street address including street number, street name, and apartment/unit if applicable (e.g. '123 Main Street, Apt 4B')",
                 },
                 "country": {
                     "type": "string",

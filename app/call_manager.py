@@ -592,6 +592,24 @@ class CallManager:
             if "state" in extracted:
                 break
 
+        # Extract address (look for street address patterns)
+        for i, t in enumerate(transcript):
+            if t.get("role") == "agent" and "address" in t["content"].lower():
+                # Check next customer response for address
+                for j in range(i + 1, min(i + 3, len(transcript))):
+                    if transcript[j].get("role") == "customer":
+                        msg = transcript[j]["content"]
+                        # Look for street address patterns (numbers followed by street names)
+                        address_match = re.search(r'\d+\s+[\w\s,.-]+(?:street|st|avenue|ave|road|rd|drive|dr|lane|ln|boulevard|blvd|way|court|ct|place|pl|apt|apartment|unit|#)', msg, re.IGNORECASE)
+                        if address_match:
+                            extracted["address"] = address_match.group(0).strip()
+                        elif len(msg) > 10 and any(word in msg.lower() for word in ["street", "avenue", "road", "drive", "lane"]):
+                            # If pattern doesn't match but contains address keywords, capture the whole message
+                            extracted["address"] = msg[:200]
+                        break
+                if "address" in extracted:
+                    break
+
         # Extract insurance status
         # Look at customer responses after agent asks about insurance
         for i, t in enumerate(transcript):

@@ -141,12 +141,17 @@ Repeat back:
 If non-US:
 "This service is for US residents -- which US state are you located in?"
 
-6) Country
+6) Address
+"What's your street address?"
+- Get complete address including street number, street name, apartment/unit if applicable.
+- Example: "123 Main Street, Apt 4B" or "456 Oak Avenue"
+
+7) Country
 Default to United States.
 Only confirm if needed:
 "And you're based in the United States, correct?"
 
-7) Insurance Status
+8) Insurance Status
 "Do you currently have any health insurance coverage?"
 
 8) Life Events
