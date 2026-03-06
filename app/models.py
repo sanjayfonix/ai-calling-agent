@@ -119,6 +119,7 @@ class CustomerData(Base):
     age: Mapped[int | None] = mapped_column(Integer, nullable=True)
     zipcode: Mapped[str | None] = mapped_column(String(20), nullable=True)
     state: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    address: Mapped[str | None] = mapped_column(Text, nullable=True)
     country: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # ── Insurance Info ──────────────────────────────────────

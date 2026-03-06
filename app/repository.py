@@ -156,9 +156,19 @@ class CustomerDataRepository:
         return encrypted
 
     def _decrypt_fields(self, record: CustomerData) -> dict[str, Any]:
-        """Decrypt sensitive fields when reading."""
+        """Decrypt sensitive fields when reading. Only return customer-facing fields."""
+        # System fields to exclude from webhook
+        exclude_fields = {
+            'id', 'call_session_id', 'created_at', 'updated_at', 
+            'data_complete', 'missing_fields'
+        }
+        
         data: dict[str, Any] = {}
         for col in CustomerData.__table__.columns:
+            # Skip system fields
+            if col.name in exclude_fields:
+                continue
+                
             val = getattr(record, col.name)
             if col.name in self.ENCRYPTED_FIELDS and val is not None:
                 try:
