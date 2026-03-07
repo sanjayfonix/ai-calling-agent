@@ -476,38 +476,34 @@ class CallManager:
         consent_status = "granted" if self._consent_received else "pending"
         recording_url = None
 
-        if self.db_call_id:
-            try:
-                async with async_session_factory() as session:
-                    encryptor = get_encryptor()
-                    
-                    # Get call session
-                    call_repo = CallSessionRepository(session, encryptor)
-                    call_record = await call_repo.get_by_id(self.db_call_id)
-                    if call_record:
-                        consent_status = call_record.consent_status.value
-                        recording_url = call_record.call_recording_url
-                    
-                    # Get customer data from DB
-                    cust_repo = CustomerDataRepository(session, encryptor)
-                    customer_data = await cust_repo.get_by_call_session(self.db_call_id)
-                    
-                    # Get transcript from DB
-                    trans_repo = TranscriptRepository(session)
-                    transcript = await trans_repo.get_transcript(self.db_call_id)
-            except Exception as e:
-                logger.error("webhook_data_gather_error", call_id=self.call_id, error=str(e))
+        # Database removed - use only in-memory data
+        # if self.db_call_id:
+        #     try:
+        #         async with async_session_factory() as session:
+        #             encryptor = get_encryptor()
+        #             
+        #             # Get call session
+        #             call_repo = CallSessionRepository(session, encryptor)
+        #             call_record = await call_repo.get_by_id(self.db_call_id)
+        #             if call_record:
+        #                 consent_status = call_record.consent_status.value
+        #                 recording_url = call_record.call_recording_url
+        #             
+        #             # Get customer data from DB
+        #             cust_repo = CustomerDataRepository(session, encryptor)
+        #             customer_data = await cust_repo.get_by_call_session(self.db_call_id)
+        #             
+        #             # Get transcript from DB
+        #             trans_repo = TranscriptRepository(session)
+        #             transcript = await trans_repo.get_transcript(self.db_call_id)
+        #     except Exception as e:
+        #         logger.error("webhook_data_gather_error", call_id=self.call_id, error=str(e))
 
-        # Use in-memory transcript if DB transcript is empty
-        if not transcript and self._transcript_buffer:
+        # Use in-memory transcript
+        if self._transcript_buffer:
             transcript = self._transcript_buffer
 
-        # If consent was received in-memory but DB says pending, fix it
-        if self._consent_received and consent_status == "pending":
-            consent_status = "granted"
-
-        # BUILD CUSTOMER DATA: merge DB data + in-memory collected data + transcript extraction
-        # Priority: DB data > function call data > transcript extraction
+        # BUILD CUSTOMER DATA: use in-memory collected data + transcript extraction
         final_customer_data = {}
 
         # Layer 1: Extract from transcript (lowest priority, fallback)
