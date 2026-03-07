@@ -483,12 +483,6 @@ async def initiate_dynamic_outbound_call(
     request: Request
 ):
     """Initiate an outbound call with dynamic agent context and appointment slots. Requires API key authentication."""
-    # Apply rate limiting
-    try:
-        await limiter.check_request(request, "10/minute")
-    except RateLimitExceeded:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
-    
     # Verify API key
     authorization: str = request.headers.get("Authorization")
     if not authorization:
@@ -581,12 +575,6 @@ async def initiate_outbound_call(
     request: Request
 ):
     """Initiate an outbound call with dynamic agent context. Requires API key authentication."""
-    # Apply rate limiting
-    try:
-        await limiter.check_request(request, "10/minute")
-    except RateLimitExceeded:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please try again later.")
-    
     # Verify API key
     authorization: str = request.headers.get("Authorization")
     if not authorization:
