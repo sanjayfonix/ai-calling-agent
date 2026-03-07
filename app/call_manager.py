@@ -496,16 +496,27 @@ class CallManager:
         if customer_data:
             final_customer_data.update({k: v for k, v in customer_data.items() if v is not None})
 
-        # Build payload
+        # Build payload with complete agent context for linking
+        agent_context = {}
+        if self.call_context:
+            agent_context = {
+                "agent_id": self.call_context.agent_id,
+                "agent_name": self.call_context.agent_name,
+                "agent_email": self.call_context.agent_email,
+                "agent_phone": self.call_context.agent_phone,
+                "agent_npn": self.call_context.agent_npn,
+                "agent_role": self.call_context.agent_role,
+                "plan_name": self.call_context.plan_name,
+                "to_number": self.call_context.to_number,
+            }
+        
         payload = {
             "call_sid": self.call_sid,
             "status": "completed",
             "consent_status": consent_status,
             "recording_url": recording_url,
-            "agent_id": self.call_context.agent_id if self.call_context else None,
-            "agent_name": self.call_context.agent_name if self.call_context else None,
-            "to_number": self.call_context.to_number if self.call_context else None,
-            "customer_data": final_customer_data if final_customer_data else None,
+            "agent_context": agent_context,  # All agent data for linking
+            "customer_data": final_customer_data if final_customer_data else None,  # Customer responses
             "transcript": transcript,
         }
 
