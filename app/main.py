@@ -265,10 +265,26 @@ async def dynamic_twilio_voice_webhook(
 
 # ── Twilio Inbound Voice Webhook ─────────────────────────────
 @app.post("/api/webhooks/twilio-voice")
-async def twilio_voice_webhook(request: Request):
+async def twilio_voice_webhook(
+    request: Request,
+    agent_id: int = Query(None),
+    agent_name: str = Query(None),
+    agent_email: str = Query(None),
+    agent_phone: str = Query(None),
+    agent_npn: str = Query("N/A"),
+    agent_role: str = Query("Health Insurance Agent"),
+    plan_name: str = Query("ACA Health Plan"),
+    slots_count: int = Query(5),
+):
     """
     Twilio calls this when an inbound call arrives.
     Returns TwiML that connects the call to our WebSocket for Media Streams.
+    
+    Supports optional agent context via query parameters:
+    Example webhook URL in Twilio:
+    https://your-app.com/api/webhooks/twilio-voice?agent_id=8&agent_name=Himanshu+Mathis&agent_email=himanshu@example.com&agent_phone=%2B919876543210
+    
+    If no agent context provided, uses default prompts.
     """
     settings = get_settings()
 
@@ -277,9 +293,36 @@ async def twilio_voice_webhook(request: Request):
     host = settings.base_url.replace("https://", "").replace("http://", "")
     websocket_url = f"{ws_scheme}://{host}/ws/media-stream"
 
-    logger.info("inbound_call_received", webhook_url=websocket_url)
+    # If agent context is provided, store it with a temporary ID
+    context_id = None
+    if agent_id and agent_name:
+        context = CallContext(
+            agent_id=agent_id,
+            agent_name=agent_name,
+            agent_email=agent_email or "",
+            agent_phone=agent_phone or "",
+            agent_npn=agent_npn,
+            agent_role=agent_role,
+            plan_name=plan_name,
+            slots=[],  # No specific slots for true inbound
+            slots_count=slots_count,
+        )
+        
+        # Generate temporary context ID
+        context_id = f"temp_{uuid.uuid4()}"
+        store_call_context(context_id, context)
+        
+        logger.info(
+            "inbound_call_with_agent_context",
+            agent_id=agent_id,
+            agent_name=agent_name,
+            context_id=context_id,
+        )
+    else:
+        logger.info("inbound_call_no_agent_context", webhook_url=websocket_url)
 
-    twiml = generate_media_stream_twiml(websocket_url)
+    # Generate TwiML with optional context_id
+    twiml = generate_media_stream_twiml(websocket_url, context_id=context_id)
 
     return PlainTextResponse(content=twiml, media_type="application/xml")
 
