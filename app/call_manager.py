@@ -90,28 +90,38 @@ class CallManager:
 
     # ── Call Lifecycle ────────────────────────────────────────
 
-    async def _on_call_started(self, call_sid: str, stream_sid: str) -> None:
+    async def _on_call_started(self, call_sid: str, stream_sid: str, context_id: str | None = None) -> None:
         """Twilio stream connected. Set up OpenAI and start conversation."""
         self.call_sid = call_sid
         self.stream_sid = stream_sid
         CallManager._active_calls[call_sid] = self
 
-        logger.info("call_connected", call_id=self.call_id, call_sid=call_sid)
+        logger.info("call_connected", call_id=self.call_id, call_sid=call_sid, context_id_from_twilio=context_id)
 
-        # Retrieve call context by call_sid (stored when outbound call was initiated)
+        # Retrieve call context by call_sid (stored when outbound call was initiated - Method 1)
         self.call_context = get_call_context(call_sid)
         
-        # If no context found and we have a temp_context_id (Method 2), try that
-        if not self.call_context and self.temp_context_id:
-            logger.info("checking_temp_context", call_id=self.call_id, temp_id=self.temp_context_id)
-            temp_context = get_call_context(self.temp_context_id)
+        # If no context found, try context_id from Twilio Stream parameters (Method 2)
+        if not self.call_context and context_id:
+            logger.info("checking_context_from_twilio_param", call_id=self.call_id, context_id=context_id)
+            temp_context = get_call_context(context_id)
             if temp_context:
                 # Map temp context to real call_sid
                 store_call_context(call_sid, temp_context)
                 self.call_context = temp_context
                 # Clean up temp entry
+                remove_call_context(context_id)
+                logger.info("call_context_mapped", call_id=self.call_id, from_context_id=context_id, to_call_sid=call_sid)
+        
+        # Fallback to temp_context_id from WebSocket init (backup method)
+        if not self.call_context and self.temp_context_id:
+            logger.info("checking_temp_context", call_id=self.call_id, temp_id=self.temp_context_id)
+            temp_context = get_call_context(self.temp_context_id)
+            if temp_context:
+                store_call_context(call_sid, temp_context)
+                self.call_context = temp_context
                 remove_call_context(self.temp_context_id)
-                logger.info("call_context_mapped", call_id=self.call_id, from_temp_id=self.temp_context_id, to_call_sid=call_sid)
+                logger.info("call_context_mapped_from_websocket", call_id=self.call_id, from_temp_id=self.temp_context_id, to_call_sid=call_sid)
         
         if self.call_context:
             logger.info("call_context_loaded", call_id=self.call_id, agent=self.call_context.agent_name)

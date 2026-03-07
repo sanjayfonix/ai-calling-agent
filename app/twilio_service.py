@@ -19,10 +19,14 @@ def create_twilio_client() -> TwilioClient:
     return TwilioClient(settings.twilio_account_sid, settings.twilio_auth_token)
 
 
-def generate_media_stream_twiml(websocket_url: str) -> str:
+def generate_media_stream_twiml(websocket_url: str, context_id: str | None = None) -> str:
     """
     Generate TwiML that tells Twilio to connect the call audio
     to our WebSocket endpoint via Media Streams.
+    
+    Args:
+        websocket_url: WebSocket URL to connect to
+        context_id: Optional context ID to pass as a Stream parameter
     """
     response = VoiceResponse()
 
@@ -30,6 +34,11 @@ def generate_media_stream_twiml(websocket_url: str) -> str:
     connect = Connect()
     stream = Stream(url=websocket_url)
     stream.parameter(name="direction", value="both")
+    
+    # Add context_id as a custom parameter if provided
+    if context_id:
+        stream.parameter(name="context_id", value=context_id)
+    
     connect.append(stream)
     response.append(connect)
 

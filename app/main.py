@@ -225,13 +225,13 @@ async def dynamic_twilio_voice_webhook(
         available_slots=len(slots_list),
     )
     
-    # Build WebSocket URL
+    # Build WebSocket URL (no query params needed - using Stream parameters instead)
     ws_scheme = "wss" if settings.base_url.startswith("https") else "ws"
     host = settings.base_url.replace("https://", "").replace("http://", "")
-    # Pass the temp_call_id as a query param so the WebSocket can retrieve context
-    websocket_url = f"{ws_scheme}://{host}/ws/media-stream?context_id={temp_call_id}"
+    websocket_url = f"{ws_scheme}://{host}/ws/media-stream"
     
-    twiml = generate_media_stream_twiml(websocket_url)
+    # Generate TwiML with context_id as a Stream parameter
+    twiml = generate_media_stream_twiml(websocket_url, context_id=temp_call_id)
     
     return PlainTextResponse(content=twiml, media_type="application/xml")
 

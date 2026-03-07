@@ -100,16 +100,25 @@ class TwilioMediaStreamHandler:
         start_data = message.get("start", {})
         self.stream_sid = start_data.get("streamSid")
         self.call_sid = start_data.get("callSid")
+        
+        # Extract custom parameters (including context_id for Method 2)
+        custom_parameters = start_data.get("customParameters", {})
+        context_id = custom_parameters.get("context_id")
 
         logger.info(
             "twilio_stream_started",
             stream_sid=self.stream_sid,
             call_sid=self.call_sid,
+            context_id=context_id,
             media_format=start_data.get("mediaFormat"),
         )
 
         if self._on_call_start:
-            await self._on_call_start(self.call_sid, self.stream_sid)
+            # Pass context_id if available
+            if context_id:
+                await self._on_call_start(self.call_sid, self.stream_sid, context_id)
+            else:
+                await self._on_call_start(self.call_sid, self.stream_sid)
 
     async def _handle_media(self, message: dict) -> None:
         """Process audio from Twilio and forward to OpenAI."""
