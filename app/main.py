@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, Request, HTTPException, Depends, Query, Body
+from fastapi import FastAPI, WebSocket, Request, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, JSONResponse
 from pydantic import BaseModel, Field
@@ -481,10 +481,27 @@ class DynamicCallRequest(BaseModel):
 @limiter.limit("10/minute")  # Max 10 outbound calls per minute
 async def initiate_dynamic_outbound_call(
     request: Request,
-    req: DynamicCallRequest = Body(...),
-    api_key: str = Depends(verify_api_key)
+    req: DynamicCallRequest
 ):
     """Initiate an outbound call with dynamic agent context and appointment slots. Requires API key authentication."""
+    # Verify API key
+    authorization: str = request.headers.get("Authorization")
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    try:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() != "bearer":
+            raise HTTPException(status_code=401, detail="Invalid authentication scheme")
+        
+        settings = get_settings()
+        if not settings.api_key or token != settings.api_key:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
     settings = get_settings()
 
     # Validate phone number with strict validation
@@ -557,10 +574,27 @@ async def initiate_dynamic_outbound_call(
 @limiter.limit("10/minute")  # Max 10 outbound calls per minute
 async def initiate_outbound_call(
     request: Request,
-    req: OutboundCallRequest = Body(...),
-    api_key: str = Depends(verify_api_key)
+    req: OutboundCallRequest
 ):
     """Initiate an outbound call with dynamic agent context. Requires API key authentication."""
+    # Verify API key
+    authorization: str = request.headers.get("Authorization")
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    try:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() != "bearer":
+            raise HTTPException(status_code=401, detail="Invalid authentication scheme")
+        
+        settings = get_settings()
+        if not settings.api_key or token != settings.api_key:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
     settings = get_settings()
 
     # Validate phone number with strict validation
