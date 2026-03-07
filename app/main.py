@@ -599,7 +599,7 @@ async def initiate_outbound_call(
         
         settings = get_settings()
         if not settings.api_key or token != settings.api_key:
-            raise HTTPException(status_code=40, detail="Invalid API key")
+            raise HTTPException(status_code=401, detail="Invalid API key")
     except Exception as e:
         if isinstance(e, HTTPException):
             raise
