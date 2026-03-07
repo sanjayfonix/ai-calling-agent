@@ -27,6 +27,8 @@ aiohttp>=3.11.11
 # Security & Encryption
 cryptography==44.0.0
 python-jose[cryptography]==3.3.0
+slowapi==0.1.9
+phonenumbers==8.13.47
 
 # Logging & Monitoring
 structlog==24.4.0

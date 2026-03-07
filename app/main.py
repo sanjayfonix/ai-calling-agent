@@ -25,6 +25,9 @@ from fastapi.responses import PlainTextResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 import structlog
 
 from app.config import get_settings
@@ -40,6 +43,7 @@ from app.repository import (
 )
 from app.twilio_service import generate_media_stream_twiml, make_outbound_call
 from app.call_context import CallContext, store_call_context
+from app.security import verify_api_key, verify_twilio_signature, validate_phone_number_strict
 
 logger = structlog.get_logger(__name__)
 
@@ -70,13 +74,26 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware
+# Rate limiting
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS middleware - restrict to allowed origins
+settings = get_settings()
+allowed_origins_list = [origin.strip() for origin in settings.allowed_origins.split(",") if origin.strip()]
+
+# If "*" is in the list, allow all origins (not recommended for production)
+if "*" in allowed_origins_list:
+    logger.warning("cors_allow_all_origins_enabled")
+    allowed_origins_list = ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Restrict in production
+    allow_origins=allowed_origins_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Authorization", "Content-Type", "X-Twilio-Signature"],
 )
 
 
@@ -146,6 +163,9 @@ async def health_check():
 async def debug_twiml():
     """Debug endpoint to verify TwiML generation and WebSocket URL."""
     settings = get_settings()
+    if settings.app_env == "production":
+        raise HTTPException(status_code=404, detail="Not found")
+    
     ws_scheme = "wss" if settings.base_url.startswith("https") else "ws"
     host = settings.base_url.replace("https://", "").replace("http://", "")
     websocket_url = f"{ws_scheme}://{host}/ws/media-stream"
@@ -163,6 +183,10 @@ async def debug_twiml():
 @app.get("/api/debug/contexts")
 async def debug_contexts():
     """Debug endpoint to see stored call contexts."""
+    settings = get_settings()
+    if settings.app_env == "production":
+        raise HTTPException(status_code=404, detail="Not found")
+    
     from app.call_context import _call_contexts
     return {
         "stored_contexts": {
@@ -182,6 +206,10 @@ async def debug_contexts():
 @app.get("/api/debug/dynamic-flow")
 async def debug_dynamic_flow():
     """Debug endpoint to verify dynamic flow data is fetched and parsed correctly."""
+    settings = get_settings()
+    if settings.app_env == "production":
+        raise HTTPException(status_code=404, detail="Not found")
+    
     from app.dynamic_collection_flow import fetch_dynamic_collection_flow, extract_question_fields
     
     # Fetch the flow data
@@ -267,14 +295,14 @@ async def dynamic_twilio_voice_webhook(
 @app.post("/api/webhooks/twilio-voice")
 async def twilio_voice_webhook(
     request: Request,
-    agent_id: int = Query(None),
-    agent_name: str = Query(None),
-    agent_email: str = Query(None),
-    agent_phone: str = Query(None),
-    agent_npn: str = Query("N/A"),
-    agent_role: str = Query("Health Insurance Agent"),
-    plan_name: str = Query("ACA Health Plan"),
-    slots_count: int = Query(5),
+    agent_id: int=Query(None),
+    agent_name: str=Query(None),
+    agent_email: str=Query(None),
+    agent_phone: str=Query(None),
+    agent_npn: str=Query("N/A"),
+    agent_role: str=Query("Health Insurance Agent"),
+    plan_name: str=Query("ACA Health Plan"),
+    slots_count: int=Query(5),
 ):
     """
     Twilio calls this when an inbound call arrives.
@@ -287,6 +315,11 @@ async def twilio_voice_webhook(
     If no agent context provided, uses default prompts.
     """
     settings = get_settings()
+
+    # Verify Twilio signature (optional, logs warning if invalid)
+    is_valid = await verify_twilio_signature(request)
+    if not is_valid:
+        logger.warning("twilio_voice_webhook_invalid_signature_proceeding_anyway")
 
     # Build WebSocket URL (wss:// for production)
     ws_scheme = "wss" if settings.base_url.startswith("https") else "ws"
@@ -349,6 +382,11 @@ async def media_stream_websocket(websocket: WebSocket):
 @app.post("/api/webhooks/call-status")
 async def call_status_webhook(request: Request):
     """Handle Twilio call status updates."""
+    # Verify Twilio signature (optional, logs warning if invalid)
+    is_valid = await verify_twilio_signature(request)
+    if not is_valid:
+        logger.warning("call_status_webhook_invalid_signature_proceeding_anyway")
+    
     form_data = await request.form()
     call_sid = form_data.get("CallSid", "")
     call_status = form_data.get("CallStatus", "")
@@ -388,6 +426,11 @@ async def call_status_webhook(request: Request):
 @app.post("/api/webhooks/recording-status")
 async def recording_status_webhook(request: Request):
     """Handle Twilio recording completion."""
+    # Verify Twilio signature (optional, logs warning if invalid)
+    is_valid = await verify_twilio_signature(request)
+    if not is_valid:
+        logger.warning("recording_status_webhook_invalid_signature_proceeding_anyway")
+    
     form_data = await request.form()
     call_sid = form_data.get("CallSid", "")
     recording_url = form_data.get("RecordingUrl", "")
@@ -435,16 +478,19 @@ class DynamicCallRequest(BaseModel):
 
 # ── Dynamic Outbound Call (with Agent Context) ──────────────
 @app.post("/api/calls/outbound-dynamic")
-async def initiate_dynamic_outbound_call(req: DynamicCallRequest):
-    """Initiate an outbound call with dynamic agent context and appointment slots."""
+@limiter.limit("10/minute")  # Max 10 outbound calls per minute
+async def initiate_dynamic_outbound_call(
+    request: Request,
+    req: DynamicCallRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    """Initiate an outbound call with dynamic agent context and appointment slots. Requires API key authentication."""
     settings = get_settings()
 
-    # Validate phone number format
-    if not req.to_number.startswith("+"):
-        raise HTTPException(
-            status_code=400,
-            detail="Phone number must be in E.164 format (e.g., +1234567890)",
-        )
+    # Validate phone number with strict validation
+    is_valid, error_msg = validate_phone_number_strict(req.to_number)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=error_msg)
 
     # Parse slots from comma-separated string
     slots_list = [s.strip() for s in req.slots.split(",") if s.strip()]
@@ -508,16 +554,19 @@ async def initiate_dynamic_outbound_call(req: DynamicCallRequest):
 
 # ── Outbound Call ────────────────────────────────────────────
 @app.post("/api/calls/outbound", response_model=OutboundCallResponse)
-async def initiate_outbound_call(req: OutboundCallRequest):
-    """Initiate an outbound call with dynamic agent context."""
+@limiter.limit("10/minute")  # Max 10 outbound calls per minute
+async def initiate_outbound_call(
+    request: Request,
+    req: OutboundCallRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    """Initiate an outbound call with dynamic agent context. Requires API key authentication."""
     settings = get_settings()
 
-    # Validate phone number format
-    if not req.to_number.startswith("+"):
-        raise HTTPException(
-            status_code=400,
-            detail="Phone number must be in E.164 format (e.g., +1234567890)",
-        )
+    # Validate phone number with strict validation
+    is_valid, error_msg = validate_phone_number_strict(req.to_number)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=error_msg)
 
     # Parse slots from comma-separated string
     slots_list = [s.strip() for s in req.slots.split(",") if s.strip()] if req.slots else []
