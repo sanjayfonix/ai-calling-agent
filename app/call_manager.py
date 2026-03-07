@@ -32,7 +32,7 @@ from app.models import CallStatus, ConsentStatus
 from app.openai_realtime import OpenAIRealtimeClient
 from app.repository import CallSessionRepository, CustomerDataRepository, TranscriptRepository
 from app.twilio_handler import TwilioMediaStreamHandler
-from app.call_context import CallContext, get_call_context, remove_call_context
+from app.call_context import CallContext, get_call_context, remove_call_context, store_call_context
 from app.dynamic_prompts import generate_dynamic_system_prompt
 from app.dynamic_collection_flow import fetch_dynamic_collection_flow, build_dynamic_prompt
 
