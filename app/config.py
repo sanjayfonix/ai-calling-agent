@@ -29,10 +29,11 @@ class Settings(BaseSettings):
     agent_phone_number: str = Field("", alias="AGENT_PHONE_NUMBER")
 
     # ── Database ────────────────────────────────────────────
-    database_url: str = Field(
-        "postgresql+asyncpg://postgres:postgres@localhost:5432/aicallingagent",
-        alias="DATABASE_URL",
-    )
+    # Database removed - backend handles storage via webhooks
+    # database_url: str = Field(
+    #     "postgresql+asyncpg://postgres:postgres@localhost:5432/aicallingagent",
+    #     alias="DATABASE_URL",
+    # )
 
     # ── Application ─────────────────────────────────────────
     app_host: str = Field("0.0.0.0", alias="APP_HOST")
@@ -79,31 +80,6 @@ class Settings(BaseSettings):
     def effective_port(self) -> int:
         """Render sets PORT env var. Use it if available, else APP_PORT."""
         return self.port or self.app_port
-
-    @property
-    def effective_database_url(self) -> str:
-        """Convert postgres:// to postgresql+asyncpg:// for SQLAlchemy.
-        Strips parameters not supported by asyncpg (sslmode, channel_binding).
-        SSL is handled separately via connect_args in database.py.
-        """
-        import re
-        url = self.database_url
-        if url.startswith("postgres://"):
-            url = url.replace("postgres://", "postgresql+asyncpg://", 1)
-        elif url.startswith("postgresql://"):
-            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
-        # Remove params not supported by asyncpg
-        url = re.sub(r'[&?]channel_binding=[^&]*', '', url)
-        url = re.sub(r'[&?]sslmode=[^&]*', '', url)
-        # Clean up leftover ? if all params were stripped
-        if url.endswith('?'):
-            url = url[:-1]
-        return url
-
-    @property
-    def requires_ssl(self) -> bool:
-        """Check if the original DATABASE_URL requested SSL."""
-        return 'sslmode=require' in self.database_url or 'neon.tech' in self.database_url
 
 
 @lru_cache()

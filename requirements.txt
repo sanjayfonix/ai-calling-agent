@@ -8,11 +8,11 @@ pydantic-settings==2.7.1
 # WebSocket
 websockets==14.1
 
-# Database
-sqlalchemy[asyncio]==2.0.36
-asyncpg>=0.30.0
-alembic==1.14.0
-greenlet>=3.1.1
+# Database - REMOVED (backend handles storage via webhooks)
+# sqlalchemy[asyncio]==2.0.36
+# asyncpg>=0.30.0
+# alembic==1.14.0
+# greenlet>=3.1.1
 
 # Twilio
 twilio==9.4.0

@@ -1,14 +1,14 @@
 """
 Call Manager -- central orchestrator for a single phone call.
 
-Bridges: Twilio Media Stream <-> OpenAI Realtime API <-> Database.
+Bridges: Twilio Media Stream <-> OpenAI Realtime API.
+Database removed - all call data is sent to backend webhook after call completion.
 
 Key design decisions for clean audio:
 1. On speech_started: Clear Twilio audio buffer immediately. This stops AI audio
    playback on the customer's phone, breaking the echo loop (AI -> speaker -> mic -> OpenAI).
 2. Do NOT manually cancel OpenAI responses. Let server VAD handle it natively.
-3. DB errors never kill the call. Everything is wrapped in try/except.
-4. Cleanup runs exactly once via _cleaned_up flag.
+3. Cleanup runs exactly once via _cleaned_up flag.
 """
 
 from __future__ import annotations
@@ -26,11 +26,7 @@ from twilio.rest import Client as TwilioClient
 import structlog
 
 from app.config import get_settings
-from app.database import async_session_factory
-from app.encryption import get_encryptor
-from app.models import CallStatus, ConsentStatus
 from app.openai_realtime import OpenAIRealtimeClient
-from app.repository import CallSessionRepository, CustomerDataRepository, TranscriptRepository
 from app.twilio_handler import TwilioMediaStreamHandler
 from app.call_context import CallContext, get_call_context, remove_call_context, store_call_context
 from app.dynamic_prompts import generate_dynamic_system_prompt
@@ -137,21 +133,22 @@ class CallManager:
         # Apply dynamic questions from flow data (if available)
         system_prompt = build_dynamic_prompt(flow_data, base_prompt)
 
+        # Database removed - data sent to backend webhook instead
         # Create DB record (non-fatal if fails)
-        try:
-            async with async_session_factory() as session:
-                encryptor = get_encryptor()
-                repo = CallSessionRepository(session, encryptor)
-                record = await repo.create(
-                    twilio_call_sid=call_sid,
-                    from_number="outbound",
-                    to_number=self.settings.twilio_phone_number,
-                )
-                self.db_call_id = record.id
-                await repo.update_status(record.id, CallStatus.IN_PROGRESS)
-                await session.commit()
-        except Exception as e:
-            logger.error("db_create_error", call_id=self.call_id, error=str(e))
+        # try:
+        #     async with async_session_factory() as session:
+        #         encryptor = get_encryptor()
+        #         repo = CallSessionRepository(session, encryptor)
+        #         record = await repo.create(
+        #             twilio_call_sid=call_sid,
+        #             from_number="outbound",
+        #             to_number=self.settings.twilio_phone_number,
+        #         )
+        #         self.db_call_id = record.id
+        #         await repo.update_status(record.id, CallStatus.IN_PROGRESS)
+        #         await session.commit()
+        # except Exception as e:
+        #     logger.error("db_create_error", call_id=self.call_id, error=str(e))
 
         # Connect to OpenAI (retry once on failure)
         for attempt in range(2):
@@ -240,13 +237,14 @@ class CallManager:
         if not self.db_call_id:
             return
         logger.info("transcript", call_id=self.call_id, role=role, text=content[:80])
-        try:
-            async with async_session_factory() as session:
-                repo = TranscriptRepository(session)
-                await repo.add_entry(self.db_call_id, role, content)
-                await session.commit()
-        except Exception as e:
-            logger.error("transcript_save_error", error=str(e))
+        # Database removed - transcript sent to backend webhook instead
+        # try:
+        #     async with async_session_factory() as session:
+        #         repo = TranscriptRepository(session)
+        #         await repo.add_entry(self.db_call_id, role, content)
+        #         await session.commit()
+        # except Exception as e:
+        #     logger.error("transcript_save_error", error=str(e))
 
     # ── Function Calls from OpenAI ───────────────────────────
 
@@ -277,18 +275,19 @@ class CallManager:
         # Track consent in collected data
         self._collected_data["consent_given"] = consent
 
-        if self.db_call_id:
-            try:
-                async with async_session_factory() as session:
-                    encryptor = get_encryptor()
-                    repo = CallSessionRepository(session, encryptor)
-                    status = ConsentStatus.GRANTED if consent else ConsentStatus.DENIED
-                    await repo.update_consent(self.db_call_id, status)
-                    if not consent:
-                        await repo.update_status(self.db_call_id, CallStatus.NO_CONSENT)
-                    await session.commit()
-            except Exception as e:
-                logger.error("consent_db_error", error=str(e))
+        # Database removed - consent sent to backend webhook instead
+        # if self.db_call_id:
+        #     try:
+        #         async with async_session_factory() as session:
+        #             encryptor = get_encryptor()
+        #             repo = CallSessionRepository(session, encryptor)
+        #             status = ConsentStatus.GRANTED if consent else ConsentStatus.DENIED
+        #             await repo.update_consent(self.db_call_id, status)
+        #             if not consent:
+        #                 await repo.update_status(self.db_call_id, CallStatus.NO_CONSENT)
+        #             await session.commit()
+        #     except Exception as e:
+        #         logger.error("consent_db_error", error=str(e))
 
         if consent:
             return json.dumps({"status": "success", "consent": "granted",
@@ -302,23 +301,26 @@ class CallManager:
         self._collected_data.update(args)
         logger.info("customer_data_collected", call_id=self.call_id, fields=list(args.keys()))
 
-        if not self.db_call_id:
-            return json.dumps({"error": "No active session"})
+        # Database removed - data sent to backend webhook instead
+        # if not self.db_call_id:
+        #     return json.dumps({"error": "No active session"})
 
-        try:
-            async with async_session_factory() as session:
-                encryptor = get_encryptor()
-                repo = CustomerDataRepository(session, encryptor)
-                await repo.create_or_update(self.db_call_id, args)
-                required = ["full_name", "email", "age", "zipcode", "state"]
-                missing = [f for f in required if not args.get(f)]
-                await repo.mark_complete(self.db_call_id, missing or None)
-                await session.commit()
+        # try:
+        #     async with async_session_factory() as session:
+        #         encryptor = get_encryptor()
+        #         repo = CustomerDataRepository(session, encryptor)
+        #         await repo.create_or_update(self.db_call_id, args)
+        #         required = ["full_name", "email", "age", "zipcode", "state"]
+        #         missing = [f for f in required if not args.get(f)]
+        #         await repo.mark_complete(self.db_call_id, missing or None)
+        #         await session.commit()
 
-            return json.dumps({"status": "success", "message": "Data saved."})
-        except Exception as e:
-            logger.error("save_data_error", error=str(e))
-            return json.dumps({"error": f"Save failed: {str(e)}"})
+        #     return json.dumps({"status": "success", "message": "Data saved."})
+        # except Exception as e:
+        #     logger.error("save_data_error", error=str(e))
+        #     return json.dumps({"error": f"Save failed: {str(e)}"})
+        
+        return json.dumps({"status": "success", "message": "Data saved to memory and will be sent to webhook."})
 
     async def _handle_check_slot(self, args: dict) -> str:
         """Check if a requested appointment slot is available."""
@@ -363,22 +365,23 @@ class CallManager:
         self._call_ended = True
 
         # Update DB status
-        if self.db_call_id:
-            try:
-                status_map = {
-                    "completed": CallStatus.COMPLETED,
-                    "no_consent": CallStatus.NO_CONSENT,
-                    "customer_request": CallStatus.COMPLETED,
-                    "error": CallStatus.FAILED,
-                    "timeout": CallStatus.TIMEOUT,
-                }
-                async with async_session_factory() as session:
-                    encryptor = get_encryptor()
-                    repo = CallSessionRepository(session, encryptor)
-                    await repo.update_status(self.db_call_id, status_map.get(reason, CallStatus.COMPLETED))
-                    await session.commit()
-            except Exception as e:
-                logger.error("end_call_db_error", error=str(e))
+        # Database removed - call status sent to backend webhook instead
+        # if self.db_call_id:
+        #     try:
+        #         status_map = {
+        #             "completed": CallStatus.COMPLETED,
+        #             "no_consent": CallStatus.NO_CONSENT,
+        #             "customer_request": CallStatus.COMPLETED,
+        #             "error": CallStatus.FAILED,
+        #             "timeout": CallStatus.TIMEOUT,
+        #         }
+        #         async with async_session_factory() as session:
+        #             encryptor = get_encryptor()
+        #             repo = CallSessionRepository(session, encryptor)
+        #             await repo.update_status(self.db_call_id, status_map.get(reason, CallStatus.COMPLETED))
+        #             await session.commit()
+        #     except Exception as e:
+        #         logger.error("end_call_db_error", error=str(e))
 
         # Hang up after delay (lets goodbye audio play)
         asyncio.create_task(self._hangup_after_delay(5.0))
@@ -414,20 +417,21 @@ class CallManager:
         # Log final audio stats
         logger.info("call_audio_stats", call_id=self.call_id, stats=CallManager._audio_stats)
 
+        # Database removed - all data sent to backend webhook instead
         # Auto-save any in-memory collected data to database before webhook
-        if self._collected_data and self.db_call_id:
-            try:
-                async with async_session_factory() as session:
-                    encryptor = get_encryptor()
-                    repo = CustomerDataRepository(session, encryptor)
-                    # Remove internal tracking fields
-                    clean_data = {k: v for k, v in self._collected_data.items() if k != "consent_given"}
-                    if clean_data:
-                        await repo.create_or_update(self.db_call_id, clean_data)
-                        await session.commit()
-                        logger.info("auto_saved_collected_data", call_id=self.call_id, fields=list(clean_data.keys()))
-            except Exception as e:
-                logger.error("auto_save_data_error", call_id=self.call_id, error=str(e))
+        # if self._collected_data and self.db_call_id:
+        #     try:
+        #         async with async_session_factory() as session:
+        #             encryptor = get_encryptor()
+        #             repo = CustomerDataRepository(session, encryptor)
+        #             # Remove internal tracking fields
+        #             clean_data = {k: v for k, v in self._collected_data.items() if k != "consent_given"}
+        #             if clean_data:
+        #                 await repo.create_or_update(self.db_call_id, clean_data)
+        #                 await session.commit()
+        #                 logger.info("auto_saved_collected_data", call_id=self.call_id, fields=list(clean_data.keys()))
+        #     except Exception as e:
+        #         logger.error("auto_save_data_error", call_id=self.call_id, error=str(e))
 
         # Send call results to Express backend
         await self._send_call_complete_webhook()
@@ -440,15 +444,16 @@ class CallManager:
         if self.openai_client:
             await self.openai_client.disconnect()
 
-        if self.db_call_id and not self._call_ended:
-            try:
-                async with async_session_factory() as session:
-                    encryptor = get_encryptor()
-                    repo = CallSessionRepository(session, encryptor)
-                    await repo.update_status(self.db_call_id, CallStatus.COMPLETED)
-                    await session.commit()
-            except Exception as e:
-                logger.error("cleanup_db_error", error=str(e))
+        # Database removed - call status sent to backend webhook instead
+        # if self.db_call_id and not self._call_ended:
+        #     try:
+        #         async with async_session_factory() as session:
+        #             encryptor = get_encryptor()
+        #             repo = CallSessionRepository(session, encryptor)
+        #             await repo.update_status(self.db_call_id, CallStatus.COMPLETED)
+        #             await session.commit()
+        #     except Exception as e:
+        #         logger.error("cleanup_db_error", error=str(e))
 
         logger.info("call_cleaned_up", call_id=self.call_id)
 

@@ -23,24 +23,14 @@ from fastapi import FastAPI, WebSocket, Request, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, JSONResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select, desc
-from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import structlog
 
 from app.config import get_settings
-from app.database import init_db, close_db, async_session_factory
-from app.encryption import get_encryptor
 from app.logging_config import setup_logging
 from app.call_manager import CallManager
-from app.models import CallSession, CustomerData, CallTranscript, CallStatus
-from app.repository import (
-    CallSessionRepository,
-    CustomerDataRepository,
-    TranscriptRepository,
-)
 from app.twilio_service import generate_media_stream_twiml, make_outbound_call
 from app.call_context import CallContext, store_call_context
 from app.security import verify_api_key, verify_twilio_signature, validate_phone_number_strict
@@ -54,15 +44,10 @@ async def lifespan(app: FastAPI):
     """Application startup and shutdown."""
     setup_logging()
     logger.info("application_starting")
-
-    # Initialize database tables
-    await init_db()
-    logger.info("database_initialized")
+    # Database removed - backend developer handles storage via webhooks
 
     yield
 
-    # Cleanup
-    await close_db()
     logger.info("application_shutdown")
 
 
@@ -653,101 +638,21 @@ async def list_calls(
     offset: int=Query(0, ge=0),
     status: str | None=Query(None),
 ):
-    """List recent calls with optional status filter."""
-    try:
-        async with async_session_factory() as session:
-            query = select(CallSession).order_by(desc(CallSession.created_at))
-
-            if status:
-                try:
-                    status_enum = CallStatus(status)
-                    query = query.where(CallSession.status == status_enum)
-                except ValueError:
-                    raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
-
-            query = query.offset(offset).limit(limit)
-            result = await session.execute(query)
-            calls = result.scalars().all()
-
-            return {
-                "calls": [
-                    {
-                        "id": str(c.id),
-                        "call_sid": c.twilio_call_sid,
-                        "from_number": c.from_number,
-                        "to_number": c.to_number,
-                        "status": c.status.value,
-                        "consent_status": c.consent_status.value,
-                        "duration_seconds": c.call_duration_seconds,
-                        "started_at": c.started_at.isoformat() if c.started_at else None,
-                        "ended_at": c.ended_at.isoformat() if c.ended_at else None,
-                        "created_at": c.created_at.isoformat(),
-                    }
-                    for c in calls
-                ],
-                "total": len(calls),
-                "limit": limit,
-                "offset": offset,
-            }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("list_calls_error", error=str(e))
-        raise HTTPException(status_code=500, detail="Failed to fetch calls")
+    """List recent calls - Database removed, data stored by backend via webhooks."""
+    return {
+        "calls": [],
+        "total": 0,
+        "limit": limit,
+        "offset": offset,
+        "message": "Database storage removed. Call data is sent to backend webhook after each call."
+    }
 
 
 # ── Get Call Details ─────────────────────────────────────────
 @app.get("/api/calls/{call_sid}")
 async def get_call_details(call_sid: str):
-    """Get detailed information about a specific call including customer data and transcript."""
-    try:
-        async with async_session_factory() as session:
-            encryptor = get_encryptor()
-
-            # Get call session
-            call_repo = CallSessionRepository(session, encryptor)
-            call = await call_repo.get_by_sid(call_sid)
-
-            if not call:
-                raise HTTPException(status_code=404, detail="Call not found")
-
-            # Get customer data
-            customer_repo = CustomerDataRepository(session, encryptor)
-            customer_data = await customer_repo.get_by_call_session(call.id)
-
-            # Get transcript
-            transcript_repo = TranscriptRepository(session)
-            transcript = await transcript_repo.get_transcript(call.id)
-
-            # Clean customer data for response (remove internal fields)
-            clean_customer = None
-            if customer_data:
-                exclude_keys = {"id", "call_session_id", "created_at", "updated_at"}
-                clean_customer = {
-                    k: v for k, v in customer_data.items()
-                    if k not in exclude_keys and v is not None
-                }
-
-            return {
-                "id": str(call.id),
-                "call_sid": call.twilio_call_sid,
-                "from_number": call.from_number,
-                "to_number": call.to_number,
-                "status": call.status.value,
-                "consent_status": call.consent_status.value,
-                "consent_timestamp": (
-                    call.consent_timestamp.isoformat() if call.consent_timestamp else None
-                ),
-                "duration_seconds": call.call_duration_seconds,
-                "recording_url": call.call_recording_url,
-                "started_at": call.started_at.isoformat() if call.started_at else None,
-                "ended_at": call.ended_at.isoformat() if call.ended_at else None,
-                "customer_data": clean_customer,
-                "transcript": transcript,
-            }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("get_call_error", error=str(e), call_sid=call_sid)
-        raise HTTPException(status_code=500, detail="Failed to fetch call details")
+    """Get call details - Database removed, data stored by backend via webhooks."""
+    raise HTTPException(
+        status_code=404,
+        detail="Call storage removed. Call data is sent to backend webhook after completion."
+    )
