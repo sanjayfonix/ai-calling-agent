@@ -26,7 +26,7 @@ curl -X POST https://ai-calling-agent-wxdz.onrender.com/api/calls/outbound \
 **Setting API Key:**
 Set `API_KEY` in your environment variables or `.env` file:
 ```env
-API_KEY=api_FnS2cTWkmtomPcLrH2g_ysGy-wTInKy6S272lswZk8M
+API_KEY=your_generated_api_key_here
 ```
 
 ### 2. Rate Limiting

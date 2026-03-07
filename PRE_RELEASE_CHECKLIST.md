@@ -18,7 +18,7 @@ Your credentials were exposed in this conversation. **ROTATE IMMEDIATELY:**
 
 - [ ] **Verify New Keys Work**
   ```bash
-  curl -H "Authorization: Bearer api_FnS2cTWkmtomPcLrH2g_ysGy-wTInKy6S272lswZk8M" \
+  curl -H "Authorization: Bearer YOUR_API_KEY" \
        https://ai-calling-agent-wxdz.onrender.com/api/health
   ```
 
@@ -37,13 +37,13 @@ TWILIO_AUTH_TOKEN=<your-token>
 TWILIO_PHONE_NUMBER=+19547996343
 DATABASE_URL=<render-postgres-url>
 
-# Security (Already generated)
-SECRET_KEY=3aHWd9dE-0BkCCIQRWxlDW96W7Ld3nZTsL9jtRMVF1Q
-ENCRYPTION_KEY=fWQU5KVO4HpJ8mbvnDQkQvsLqg8mAsA4rPk6vqTPL14=
-API_KEY=api_FnS2cTWkmtomPcLrH2g_ysGy-wTInKy6S272lswZk8M
+# Security (Generate new keys before deploying)
+SECRET_KEY=<generate-using-python-secrets>
+ENCRYPTION_KEY=<generate-using-fernet>
+API_KEY=<generate-using-python-secrets>
 
 # CORS (Your backend domains)
-ALLOWED_ORIGINS=https://ai-calling-agent-wxdz.onrender.com,https://xd363v4j-5000.inc1.devtunnels.ms
+ALLOWED_ORIGINS=https://yourdomain.com,https://api.yourdomain.com
 
 # Application
 APP_ENV=production
@@ -63,14 +63,14 @@ Your backend developer needs the API key to call your endpoints:
 **Method 1: Direct Outbound Calls**
 ```bash
 curl -X POST https://ai-calling-agent-wxdz.onrender.com/api/calls/outbound \
-  -H "Authorization: Bearer api_FnS2cTWkmtomPcLrH2g_ysGy-wTInKy6S272lswZk8M" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "to_number": "+918949968414",
-    "agent_id": 8,
-    "agent_name": "Himanshu Mathis",
-    "agent_email": "himanshu@example.com",
-    "agent_phone": "+919876543210"
+    "to_number": "+1234567890",
+    "agent_id": 1,
+    "agent_name": "John Doe",
+    "agent_email": "agent@example.com",
+    "agent_phone": "+1234567890"
   }'
 ```
 
@@ -128,7 +128,7 @@ if not is_valid:
 - [ ] **Invalid Phone Number**: Should get 400 Bad Request
   ```bash
   curl -X POST https://ai-calling-agent-wxdz.onrender.com/api/calls/outbound \
-    -H "Authorization: Bearer api_FnS2cTWkmtomPcLrH2g_ysGy-wTInKy6S272lswZk8M" \
+    -H "Authorization: Bearer YOUR_API_KEY" \
     -H "Content-Type: application/json" \
     -d '{"to_number":"invalid"}'
   # Expected: 400 Bad Request
@@ -234,8 +234,9 @@ Provide this information:
 
 **API Key:**
 ```
-api_FnS2cTWkmtomPcLrH2g_ysGy-wTInKy6S272lswZk8M
+YOUR_GENERATED_API_KEY_HERE
 ```
+*Note: Share this securely (e.g., via encrypted channel, never commit to git)*
 
 **Webhook URL (receives customer data):**
 ```
