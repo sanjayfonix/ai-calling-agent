@@ -3,6 +3,7 @@ Dynamic collection flow service - fetches question configuration from backend AP
 """
 
 import httpx
+import json
 import structlog
 from typing import Dict, List, Any
 from datetime import datetime, timedelta
@@ -39,6 +40,16 @@ async def fetch_dynamic_collection_flow() -> Dict[str, Any] | None:
             
             if response.status_code == 200:
                 data = response.json()
+                
+                # Parse the 'data' field if it's a JSON string
+                if "data" in data and isinstance(data["data"], str):
+                    try:
+                        data["data"] = json.loads(data["data"])
+                        logger.info("dynamic_flow_data_parsed", questions_count=len(data["data"]))
+                    except json.JSONDecodeError as e:
+                        logger.error("dynamic_flow_json_parse_error", error=str(e))
+                        return None
+                
                 _flow_cache = data
                 _cache_timestamp = datetime.now()
                 logger.info(
@@ -75,39 +86,32 @@ def build_dynamic_prompt(flow_data: Dict[str, Any] | None, base_prompt: str) -> 
         logger.info("no_dynamic_flow_using_base_prompt")
         return base_prompt
     
-    flows = flow_data.get("data", [])
-    if not flows or not isinstance(flows, list):
-        return base_prompt
-    
-    # Get the first active flow (assuming single active flow)
-    active_flow = flows[0] if flows else None
-    if not active_flow:
-        return base_prompt
-    
-    questions = active_flow.get("questions", [])
-    if not questions:
+    questions = flow_data.get("data", [])
+    if not questions or not isinstance(questions, list):
         logger.info("no_questions_in_flow_using_base")
         return base_prompt
     
     # Build the dynamic questions section
+    # API returns: [{"key": "consent", "prompt": "before we begin..."}, ...]
     questions_text = []
     for idx, q in enumerate(questions, 1):
-        question_text = q.get("question", "")
-        question_type = q.get("type", "text")
-        required = q.get("required", False)
+        question_key = q.get("key", "")
+        question_prompt = q.get("prompt", "")
         
-        if question_text:
-            questions_text.append(f"{idx}) {question_text}")
+        if question_prompt:
+            questions_text.append(f"{idx}) {question_prompt}")
             
-            # Add validation hints based on type
-            if question_type == "email":
+            # Add validation hints based on key
+            if question_key == "email":
                 questions_text.append("- Must contain @ and a domain.")
-            elif question_type == "phone":
+            elif question_key == "phone":
                 questions_text.append("- Must be a valid 10-digit US phone number.")
-            elif question_type == "zipcode":
+            elif question_key in ["zip", "zipcode"]:
                 questions_text.append("- Must be exactly 5 digits.")
-            elif question_type == "number":
-                questions_text.append(f"- Must be a valid number.")
+            elif "age" in question_key.lower():
+                questions_text.append("- Must be a valid age number.")
+            elif "household" in question_key.lower():
+                questions_text.append("- Must be a valid number.")
             
             questions_text.append("")  # Empty line between questions
     
@@ -144,20 +148,17 @@ def extract_question_fields(flow_data: Dict[str, Any] | None) -> List[str]:
     if not flow_data or "data" not in flow_data:
         return []
     
-    flows = flow_data.get("data", [])
-    if not flows or not isinstance(flows, list):
+    questions = flow_data.get("data", [])
+    if not questions or not isinstance(questions, list):
         return []
     
-    active_flow = flows[0] if flows else None
-    if not active_flow:
-        return []
-    
-    questions = active_flow.get("questions", [])
+    # API returns: [{"key": "consent", "prompt": "..."}, ...]
+    # Extract all the keys
     field_names = []
-    
     for q in questions:
-        field_name = q.get("fieldName", "")
-        if field_name:
-            field_names.append(field_name)
+        field_key = q.get("key", "")
+        if field_key:
+            field_names.append(field_key)
     
+    logger.info("extracted_question_fields", count=len(field_names), fields=field_names)
     return field_names

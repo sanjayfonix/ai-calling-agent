@@ -46,7 +46,7 @@ class CallManager:
     # Audio debug counters (class-level, reset per call)
     _audio_stats: dict[str, int] = {"openai_received": 0, "twilio_sent": 0, "skipped": 0}
 
-    def __init__(self, websocket: WebSocket, temp_context_id: str | None = None):
+    def __init__(self, websocket: WebSocket, temp_context_id: str | None=None):
         self.settings = get_settings()
         self.websocket = websocket
         self.call_id: str | None = None
@@ -90,7 +90,7 @@ class CallManager:
 
     # ── Call Lifecycle ────────────────────────────────────────
 
-    async def _on_call_started(self, call_sid: str, stream_sid: str, context_id: str | None = None) -> None:
+    async def _on_call_started(self, call_sid: str, stream_sid: str, context_id: str | None=None) -> None:
         """Twilio stream connected. Set up OpenAI and start conversation."""
         self.call_sid = call_sid
         self.stream_sid = stream_sid
