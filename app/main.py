@@ -266,7 +266,10 @@ async def media_stream_websocket(websocket: WebSocket):
     """
     # Extract context_id from query parameters (for Method 2)
     context_id = websocket.query_params.get("context_id")
-    logger.info("media_stream_ws_connecting", context_id=context_id)
+    logger.info("media_stream_ws_connecting", 
+                context_id=context_id,
+                query_params=dict(websocket.query_params),
+                url=str(websocket.url))
 
     manager = CallManager(websocket, temp_context_id=context_id)
     await manager.start()
