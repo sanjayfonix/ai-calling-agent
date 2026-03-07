@@ -240,14 +240,13 @@ async def twilio_voice_webhook(request: Request):
 
 # ── Twilio Media Stream WebSocket ────────────────────────────
 @app.websocket("/ws/media-stream")
-async def media_stream_websocket(websocket: WebSocket, context_id: str = None):
+async def media_stream_websocket(websocket: WebSocket):
     """
     WebSocket endpoint for Twilio Media Streams.
     Each connection = one phone call.
-    
-    Args:
-        context_id: Optional temp ID from /twilio/voice endpoint (Method 2)
     """
+    # Extract context_id from query parameters (for Method 2)
+    context_id = websocket.query_params.get("context_id")
     logger.info("media_stream_ws_connecting", context_id=context_id)
 
     manager = CallManager(websocket, temp_context_id=context_id)
