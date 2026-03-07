@@ -159,6 +159,25 @@ async def debug_twiml():
     }
 
 
+# ── Debug: Show stored call contexts ──────────────────────
+@app.get("/api/debug/contexts")
+async def debug_contexts():
+    """Debug endpoint to see stored call contexts."""
+    from app.call_context import _call_contexts
+    return {
+        "stored_contexts": {
+            call_sid: {
+                "agent_name": ctx.agent_name,
+                "agent_id": ctx.agent_id,
+                "plan_name": ctx.plan_name,
+                "slots_count": ctx.slots_count
+            }
+            for call_sid, ctx in _call_contexts.items()
+        },
+        "count": len(_call_contexts)
+    }
+
+
 # ── Dynamic Twilio Voice Webhook (from Express Backend) ──────
 @app.get("/twilio/voice")
 async def dynamic_twilio_voice_webhook(
