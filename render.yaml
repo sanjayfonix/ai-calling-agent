@@ -46,7 +46,7 @@ services:
 
       # Application
       - key: BASE_URL
-        value: https://apicoverlaunch.txogavideo.in
+        value: https://ai-calling-agent-wxdz.onrender.com
       - key: APP_ENV
         value: production
       - key: LOG_LEVEL
