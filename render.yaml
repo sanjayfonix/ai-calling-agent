@@ -1,12 +1,13 @@
 # Render Blueprint — Infrastructure as Code
 # https://render.com/docs/blueprint-spec
 
-databases:
-  - name: aicallingagent-db
-    plan: starter  # $7/month — 1GB storage, 256MB RAM
-    databaseName: aicallingagent
-    user: aicallingagent_user
-    region: oregon
+# Database removed - backend handles storage via webhooks
+# databases:
+#   - name: aicallingagent-db
+#     plan: starter  # $7/month — 1GB storage, 256MB RAM
+#     databaseName: aicallingagent
+#     user: aicallingagent_user
+#     region: oregon
 
 services:
   - type: web
@@ -18,11 +19,11 @@ services:
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --ws-max-size 16777216 --timeout-keep-alive 120
     healthCheckPath: /api/health
     envVars:
-      # Database — auto-linked from Render PostgreSQL
-      - key: DATABASE_URL
-        fromDatabase:
-          name: aicallingagent-db
-          property: connectionString
+      # Database removed - backend stores data via webhook
+      # - key: DATABASE_URL
+      #   fromDatabase:
+      #     name: aicallingagent-db
+      #     property: connectionString
 
       # OpenAI
       - key: OPENAI_API_KEY
