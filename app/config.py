@@ -52,7 +52,10 @@ class Settings(BaseSettings):
     secret_key: str = Field("change-me", alias="SECRET_KEY")
     encryption_key: str = Field("change-me-32-bytes-key-here!!!!!", alias="ENCRYPTION_KEY")
     api_key: str = Field("", alias="API_KEY")
-    allowed_origins: str = Field("*", alias="ALLOWED_ORIGINS")  # Comma-separated list
+    allowed_origins: str = Field(
+        "https://ai-calling-agent-wxdz.onrender.com",  # Default: only allow self
+        alias="ALLOWED_ORIGINS"
+    )  # Comma-separated list
 
     # ── Logging ─────────────────────────────────────────────
     log_level: str = Field("INFO", alias="LOG_LEVEL")

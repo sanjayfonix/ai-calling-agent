@@ -20,7 +20,7 @@ security = HTTPBearer()
 
 
 def verify_api_key(
-    credentials: HTTPAuthorizationCredentials = Security(security)
+    credentials: HTTPAuthorizationCredentials=Security(security)
 ) -> str:
     """
     Verify API key from Authorization header.
@@ -151,7 +151,7 @@ def validate_phone_number_strict(phone: str) -> tuple[bool, str]:
         return False, f"Phone validation error: {str(e)}"
 
 
-def sanitize_string(value: str, max_length: int = 500) -> str:
+def sanitize_string(value: str, max_length: int=500) -> str:
     """
     Sanitize string input by removing potentially dangerous characters.
     

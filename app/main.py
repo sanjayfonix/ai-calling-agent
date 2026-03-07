@@ -482,7 +482,7 @@ class DynamicCallRequest(BaseModel):
 async def initiate_dynamic_outbound_call(
     request: Request,
     req: DynamicCallRequest,
-    api_key: str = Depends(verify_api_key)
+    api_key: str=Depends(verify_api_key)
 ):
     """Initiate an outbound call with dynamic agent context and appointment slots. Requires API key authentication."""
     settings = get_settings()
@@ -558,7 +558,7 @@ async def initiate_dynamic_outbound_call(
 async def initiate_outbound_call(
     request: Request,
     req: OutboundCallRequest,
-    api_key: str = Depends(verify_api_key)
+    api_key: str=Depends(verify_api_key)
 ):
     """Initiate an outbound call with dynamic agent context. Requires API key authentication."""
     settings = get_settings()
