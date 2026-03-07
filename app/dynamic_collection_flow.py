@@ -123,9 +123,9 @@ def build_dynamic_prompt(flow_data: Dict[str, Any] | None, base_prompt: str) -> 
         end_idx = base_prompt.find(end_marker)
         
         new_prompt = (
-            base_prompt[:start_idx + len(start_marker)] +
-            "\nAsk ONE question at a time.\nWait for the answer before continuing.\nAcknowledge briefly before moving to the next question.\nDo not re-ask completed fields unless correction is required.\n\n" +
-            dynamic_questions_block +
+            base_prompt[:start_idx + len(start_marker)] + 
+            "\nAsk ONE question at a time.\nWait for the answer before continuing.\nAcknowledge briefly before moving to the next question.\nDo not re-ask completed fields unless correction is required.\n\n" + 
+            dynamic_questions_block + 
             "\n" + base_prompt[end_idx:]
         )
         

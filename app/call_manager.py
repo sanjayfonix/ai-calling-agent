@@ -46,7 +46,7 @@ class CallManager:
     # Audio debug counters (class-level, reset per call)
     _audio_stats: dict[str, int] = {"openai_received": 0, "twilio_sent": 0, "skipped": 0}
 
-    def __init__(self, websocket: WebSocket):
+    def __init__(self, websocket: WebSocket, temp_context_id: str | None = None):
         self.settings = get_settings()
         self.websocket = websocket
         self.call_id: str | None = None
@@ -54,6 +54,7 @@ class CallManager:
         self.stream_sid: str | None = None
         self.db_call_id: uuid.UUID | None = None
         self.call_context: CallContext | None = None
+        self.temp_context_id = temp_context_id  # For Method 2 (/twilio/voice)
 
         self.twilio_handler: TwilioMediaStreamHandler | None = None
         self.openai_client: OpenAIRealtimeClient | None = None
@@ -99,6 +100,19 @@ class CallManager:
 
         # Retrieve call context by call_sid (stored when outbound call was initiated)
         self.call_context = get_call_context(call_sid)
+        
+        # If no context found and we have a temp_context_id (Method 2), try that
+        if not self.call_context and self.temp_context_id:
+            logger.info("checking_temp_context", call_id=self.call_id, temp_id=self.temp_context_id)
+            temp_context = get_call_context(self.temp_context_id)
+            if temp_context:
+                # Map temp context to real call_sid
+                store_call_context(call_sid, temp_context)
+                self.call_context = temp_context
+                # Clean up temp entry
+                remove_call_context(self.temp_context_id)
+                logger.info("call_context_mapped", call_id=self.call_id, from_temp_id=self.temp_context_id, to_call_sid=call_sid)
+        
         if self.call_context:
             logger.info("call_context_loaded", call_id=self.call_id, agent=self.call_context.agent_name)
         else:
