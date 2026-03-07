@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, Request, HTTPException, Depends, Query
+from fastapi import FastAPI, WebSocket, Request, HTTPException, Depends, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, JSONResponse
 from pydantic import BaseModel, Field
@@ -481,7 +481,7 @@ class DynamicCallRequest(BaseModel):
 @limiter.limit("10/minute")  # Max 10 outbound calls per minute
 async def initiate_dynamic_outbound_call(
     request: Request,
-    req: DynamicCallRequest,
+    req: DynamicCallRequest = Body(...),
     api_key: str = Depends(verify_api_key)
 ):
     """Initiate an outbound call with dynamic agent context and appointment slots. Requires API key authentication."""
@@ -557,7 +557,7 @@ async def initiate_dynamic_outbound_call(
 @limiter.limit("10/minute")  # Max 10 outbound calls per minute
 async def initiate_outbound_call(
     request: Request,
-    req: OutboundCallRequest,
+    req: OutboundCallRequest = Body(...),
     api_key: str = Depends(verify_api_key)
 ):
     """Initiate an outbound call with dynamic agent context. Requires API key authentication."""
