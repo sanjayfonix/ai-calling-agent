@@ -483,25 +483,19 @@ async def initiate_dynamic_outbound_call(
     request: Request
 ):
     """Initiate an outbound call with dynamic agent context and appointment slots. Requires API key authentication."""
+    settings = get_settings()
+    
     # Verify API key
     authorization: str = request.headers.get("Authorization")
     if not authorization:
         raise HTTPException(status_code=401, detail="Not authenticated")
     
-    try:
-        scheme, _, token = authorization.partition(" ")
-        if scheme.lower() != "bearer":
-            raise HTTPException(status_code=401, detail="Invalid authentication scheme")
-        
-        settings = get_settings()
-        if not settings.api_key or token != settings.api_key:
-            raise HTTPException(status_code=401, detail="Invalid API key")
-    except Exception as e:
-        if isinstance(e, HTTPException):
-            raise
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Invalid authentication scheme")
     
-    settings = get_settings()
+    if not settings.api_key or token != settings.api_key:
+        raise HTTPException(status_code=401, detail="Invalid API key")
 
     # Validate phone number with strict validation
     is_valid, error_msg = validate_phone_number_strict(req.to_number)
@@ -575,25 +569,19 @@ async def initiate_outbound_call(
     request: Request
 ):
     """Initiate an outbound call with dynamic agent context. Requires API key authentication."""
+    settings = get_settings()
+    
     # Verify API key
     authorization: str = request.headers.get("Authorization")
     if not authorization:
         raise HTTPException(status_code=401, detail="Not authenticated")
     
-    try:
-        scheme, _, token = authorization.partition(" ")
-        if scheme.lower() != "bearer":
-            raise HTTPException(status_code=401, detail="Invalid authentication scheme")
-        
-        settings = get_settings()
-        if not settings.api_key or token != settings.api_key:
-            raise HTTPException(status_code=401, detail="Invalid API key")
-    except Exception as e:
-        if isinstance(e, HTTPException):
-            raise
-        raise HTTPException(status_code=401, detail="Not authenticated")
-   
-    settings = get_settings()
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer":
+        raise HTTPException(status_code=401, detail="Invalid authentication scheme")
+    
+    if not settings.api_key or token != settings.api_key:
+        raise HTTPException(status_code=401, detail="Invalid API key")
 
     # Validate phone number with strict validation
     is_valid, error_msg = validate_phone_number_strict(req.to_number)
