@@ -178,6 +178,33 @@ async def debug_contexts():
     }
 
 
+# ── Debug: Test dynamic flow data fetching ──────────────────────
+@app.get("/api/debug/dynamic-flow")
+async def debug_dynamic_flow():
+    """Debug endpoint to verify dynamic flow data is fetched and parsed correctly."""
+    from app.dynamic_collection_flow import fetch_dynamic_collection_flow, extract_question_fields
+    
+    # Fetch the flow data
+    flow_data = await fetch_dynamic_collection_flow()
+    
+    if not flow_data:
+        return {
+            "error": "Failed to fetch dynamic flow data",
+            "success": False
+        }
+    
+    # Extract field names
+    field_names = extract_question_fields(flow_data)
+    
+    return {
+        "success": True,
+        "flow_data": flow_data,
+        "question_count": len(flow_data.get("data", [])) if flow_data else 0,
+        "field_names": field_names,
+        "data_type": type(flow_data.get("data")).__name__ if flow_data else None
+    }
+
+
 # ── Dynamic Twilio Voice Webhook (from Express Backend) ──────
 @app.get("/twilio/voice")
 async def dynamic_twilio_voice_webhook(
