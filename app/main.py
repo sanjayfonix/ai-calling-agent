@@ -548,8 +548,8 @@ async def initiate_dynamic_outbound_call(
             "available_slots": len(slots_list),
         }
     except Exception as e:
-        logger.error("dynamic_outbound_call_error", error=str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to initiate call: {str(e)}")
+        logger.error("dynamic_outbound_call_error", error=str(e), to_number=req.to_number)
+        raise HTTPException(status_code=500, detail="Failed to initiate call. Please try again or contact support.")
 
 
 # ── Outbound Call ────────────────────────────────────────────
@@ -622,8 +622,8 @@ async def initiate_outbound_call(
             message=f"Call initiated to {req.to_number} on behalf of {req.agent_name}",
         )
     except Exception as e:
-        logger.error("outbound_call_error", error=str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to initiate call: {str(e)}")
+        logger.error("outbound_call_error", error=str(e), to_number=req.to_number)
+        raise HTTPException(status_code=500, detail="Failed to initiate call. Please try again or contact support.")
 
 
 # ── List Calls ──────────────────────────────────────────────
