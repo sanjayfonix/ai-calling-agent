@@ -152,12 +152,13 @@ class CallManager:
                 await asyncio.sleep(0.5)
 
         # Wait for session config to be confirmed by OpenAI before triggering greeting
+        # Reduced timeout to 1.5 seconds to minimize call start delay
         if self.openai_client and self.openai_client.is_connected:
-            session_ready = await self.openai_client.wait_for_session_ready(timeout=5.0)
+            session_ready = await self.openai_client.wait_for_session_ready(timeout=1.5)
             if not session_ready:
                 logger.warning("session_not_ready_proceeding_anyway", call_id=self.call_id)
 
-        # Send initial greeting
+        # Send initial greeting immediately
         if self.openai_client and self.openai_client.is_connected and not self._greeting_sent:
             self._greeting_sent = True
             logger.info("triggering_initial_greeting", call_id=self.call_id)

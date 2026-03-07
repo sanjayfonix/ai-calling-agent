@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     
     # ── Backend API ─────────────────────────────────────────
     backend_webhook_url: str = Field(
-        "https://xd363v4j-5000.inc1.devtunnels.ms/api/v1/webhooks/call-complete",
+        "https://xd363v4j-5000.inc1.devtunnels.ms/api/ai-call/call-complete",
         alias="BACKEND_WEBHOOK_URL"
     )
 

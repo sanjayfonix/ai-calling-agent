@@ -83,7 +83,17 @@ app.add_middleware(
 # ── Request/Response Models ──────────────────────────────────
 class OutboundCallRequest(BaseModel):
     to_number: str = Field(..., description="Phone number to call (E.164 format, e.g., +1234567890)")
+    agent_id: int = Field(1, description="Agent ID")
+    agent_name: str = Field("John Doe", description="Agent full name")
+    agent_email: str = Field("agent@health.com", description="Agent email")
+    agent_phone: str = Field("+1234567890", description="Agent phone number")
+    agent_npn: str = Field("12345678", description="Agent NPN number")
+    agent_role: str = Field("Agent", description="Agent role")
+    plan_name: str = Field("STARTER", description="Plan name")
+    slots: str = Field("", description="Comma-separated available slots (e.g., '2026-03-05|09:00,2026-03-05|09:30')")
+    slots_count: int = Field(0, description="Number of available slots")
     record: bool = Field(True, description="Whether to record the call")
+    callback_url: str = Field("https://xd363v4j-5000.inc1.devtunnels.ms/api/ai-call/call-complete", description="URL to POST call results when call completes")
 
 
 class OutboundCallResponse(BaseModel):
@@ -405,7 +415,7 @@ async def initiate_dynamic_outbound_call(req: DynamicCallRequest):
 # ── Outbound Call ────────────────────────────────────────────
 @app.post("/api/calls/outbound", response_model=OutboundCallResponse)
 async def initiate_outbound_call(req: OutboundCallRequest):
-    """Initiate an outbound call to a phone number."""
+    """Initiate an outbound call with dynamic agent context."""
     settings = get_settings()
 
     # Validate phone number format
@@ -414,6 +424,32 @@ async def initiate_outbound_call(req: OutboundCallRequest):
             status_code=400,
             detail="Phone number must be in E.164 format (e.g., +1234567890)",
         )
+
+    # Parse slots from comma-separated string
+    slots_list = [s.strip() for s in req.slots.split(",") if s.strip()] if req.slots else []
+    
+    # Create call context with agent information
+    context = CallContext(
+        agent_id=req.agent_id,
+        agent_name=req.agent_name,
+        agent_email=req.agent_email,
+        agent_phone=req.agent_phone,
+        agent_npn=req.agent_npn,
+        agent_role=req.agent_role,
+        plan_name=req.plan_name,
+        slots=slots_list,
+        slots_count=req.slots_count,
+        callback_url=req.callback_url,
+        to_number=req.to_number,
+    )
+
+    logger.info(
+        "outbound_call_with_context",
+        agent_id=req.agent_id,
+        agent_name=req.agent_name,
+        to_number=req.to_number,
+        available_slots=len(slots_list),
+    )
 
     ws_scheme = "wss" if settings.base_url.startswith("https") else "ws"
     host = settings.base_url.replace("https://", "").replace("http://", "")
@@ -427,11 +463,20 @@ async def initiate_outbound_call(req: OutboundCallRequest):
             status_callback_url=status_callback,
             record=req.record,
         )
+        
+        # Store context with the actual call_sid
+        store_call_context(call_sid, context)
+        
+        logger.info(
+            "call_context_stored",
+            call_sid=call_sid,
+            agent_name=req.agent_name,
+        )
 
         return OutboundCallResponse(
             call_sid=call_sid,
             status="initiated",
-            message=f"Call initiated to {req.to_number}",
+            message=f"Call initiated to {req.to_number} on behalf of {req.agent_name}",
         )
     except Exception as e:
         logger.error("outbound_call_error", error=str(e))
