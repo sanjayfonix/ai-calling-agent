@@ -141,7 +141,7 @@ class CustomerDataRepository:
     """CRUD operations for CustomerData with encryption."""
 
     # Fields that must be encrypted at rest
-    ENCRYPTED_FIELDS = {"email", "doctor_name", "medicines"}
+    ENCRYPTED_FIELDS = {"email", "phone_number"}
 
     def __init__(self, session: AsyncSession, encryptor: FieldEncryptor):
         self.session = session
@@ -159,7 +159,7 @@ class CustomerDataRepository:
         """Decrypt sensitive fields when reading. Only return customer-facing fields."""
         # System fields to exclude from webhook
         exclude_fields = {
-            'id', 'call_session_id', 'created_at', 'updated_at', 
+            'id', 'call_session_id', 'created_at', 'updated_at',
             'data_complete', 'missing_fields'
         }
         

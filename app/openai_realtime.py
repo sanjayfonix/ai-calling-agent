@@ -120,9 +120,9 @@ class OpenAIRealtimeClient:
                 },
                 "turn_detection": {
                     "type": "server_vad",
-                    "threshold": 0.7,
-                    "prefix_padding_ms": 200,
-                    "silence_duration_ms": 800,
+                    "threshold": 0.5,
+                    "prefix_padding_ms": 300,
+                    "silence_duration_ms": 600,
                     "create_response": True,
                 },
                 "tools": TOOL_DEFINITIONS,
@@ -300,10 +300,15 @@ class OpenAIRealtimeClient:
 
             # ── Audio Events ─────────────────────────────
             case "response.audio.delta":
-                # Streaming audio from AI → send to Twilio (no per-chunk logging to avoid event loop lag)
+                # Streaming audio from AI → send to Twilio
                 audio_b64 = event.get("delta", "")
                 if audio_b64 and self._on_audio_delta:
+                    logger.info("openai_audio_delta_received", call_id=self.call_id, audio_len=len(audio_b64))
                     await self._on_audio_delta(audio_b64)
+                elif not audio_b64:
+                    logger.warning("openai_audio_delta_empty", call_id=self.call_id)
+                elif not self._on_audio_delta:
+                    logger.warning("openai_no_audio_callback", call_id=self.call_id)
 
             case "response.audio.done":
                 logger.debug("openai_audio_done", call_id=self.call_id)

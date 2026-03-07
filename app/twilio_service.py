@@ -26,10 +26,10 @@ def generate_media_stream_twiml(websocket_url: str) -> str:
     """
     response = VoiceResponse()
 
-    # Connect to our WebSocket for bidirectional audio
-    # Inside <Connect>, the stream is automatically bidirectional
+    # Connect to our WebSocket for bidirectional audio (no pause — start immediately)
     connect = Connect()
     stream = Stream(url=websocket_url)
+    stream.parameter(name="direction", value="both")
     connect.append(stream)
     response.append(connect)
 

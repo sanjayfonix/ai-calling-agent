@@ -70,19 +70,24 @@ Do not re-ask completed fields unless correction is required.
 1) Full Name
 "May I start with your full name?"
 
-2) Email Address
+2) Date of Birth
+"What is your date of birth?"
+- Accept formats like MM/DD/YYYY, Month Day Year, etc.
+- Repeat back to confirm.
+
+3) Email Address
 "And what's the best email to reach you at?"
 - Must contain @ and a domain.
 - Repeat normally:
   "Just to confirm, that's [email], correct?"
 - Only spell it out if unclear.
 
-3) Age
-"And how old are you?"
-- Must be between 18 and 120.
-- If outside range or unclear, politely clarify.
+4) Best Phone Number
+"What's the best phone number to reach you at?"
+- Must be a valid US phone number (10 digits).
+- Repeat back to confirm.
 
-4) Zip Code
+5) Zip Code
 "What's your zip code?"
 - Must be exactly 5 digits.
 - No letters.
@@ -95,40 +100,34 @@ If invalid 3 times:
 Repeat back:
 "Got it, zip code [#####], correct?"
 
-5) State
+6) State
 "Which state are you in?"
 - Must be a valid US state name or abbreviation.
 If non-US:
 "This service is for US residents -- which US state are you located in?"
 
-6) Address
+7) Address
 "What's your street address?"
 - Get complete address including street number, street name, apartment/unit if applicable.
 - Example: "123 Main Street, Apt 4B" or "456 Oak Avenue"
 
-7) Country
+8) Country
 Default to United States.
 Only confirm if needed:
 "And you're based in the United States, correct?"
 
-8) Insurance Status
+9) Tax Household Size
+"About how many people are in your tax household, including yourself?"
+- Must be a number between 1 and 10.
+- If outside range, politely clarify.
+
+10) Insurance Status
 "Do you currently have any health insurance coverage?"
 
-9) Life Events
+11) Life Events
 "Have you had any major life changes recently -- like losing a job, getting married, having a baby, or moving to a new state?"
 Then say:
 "The reason I ask is these events can qualify you for a special enrollment period."
-
-10) Doctor Name
-"Do you have a primary care doctor? What's their name?"
-
-11) Doctor Specialty
-"And what's their specialty?"
-
-12) Medications
-"Are you currently taking any prescription medications?"
-If yes:
-"Could you list them for me?"
 
 12) Preferred Follow-Up Time
 "What's the best time for our team to give you a follow-up call?"
@@ -226,13 +225,17 @@ TOOL_DEFINITIONS = [
                     "type": "string",
                     "description": "Customer's full legal name",
                 },
+                "date_of_birth": {
+                    "type": "string",
+                    "description": "Customer's date of birth (e.g., '03/15/1990', 'March 15, 1990')",
+                },
                 "email": {
                     "type": "string",
                     "description": "Customer's email address",
                 },
-                "age": {
-                    "type": "integer",
-                    "description": "Customer's age in years",
+                "phone_number": {
+                    "type": "string",
+                    "description": "Best phone number to reach the customer (10 digits)",
                 },
                 "zipcode": {
                     "type": "string",
@@ -250,6 +253,10 @@ TOOL_DEFINITIONS = [
                     "type": "string",
                     "description": "Country of residence (default: United States)",
                 },
+                "tax_household_size": {
+                    "type": "integer",
+                    "description": "Number of people in the customer's tax household including themselves (1-10)",
+                },
                 "currently_insured": {
                     "type": "boolean",
                     "description": "Whether the customer currently has health insurance",
@@ -261,18 +268,6 @@ TOOL_DEFINITIONS = [
                 "life_event_details": {
                     "type": "string",
                     "description": "Additional details about the life event",
-                },
-                "doctor_name": {
-                    "type": "string",
-                    "description": "Name of customer's primary care doctor",
-                },
-                "doctor_specialty": {
-                    "type": "string",
-                    "description": "Specialty of the doctor",
-                },
-                "medicines": {
-                    "type": "string",
-                    "description": "Comma-separated list of current prescription medications",
                 },
                 "preferred_time_slot": {
                     "type": "string",

@@ -115,22 +115,21 @@ class CustomerData(Base):
 
     # ── Personal Info ───────────────────────────────────────
     full_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    date_of_birth: Mapped[str | None] = mapped_column(String(20), nullable=True)
     email: Mapped[str | None] = mapped_column(Text, nullable=True)  # encrypted
-    age: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    phone_number: Mapped[str | None] = mapped_column(String(20), nullable=True)  # encrypted
     zipcode: Mapped[str | None] = mapped_column(String(20), nullable=True)
     state: Mapped[str | None] = mapped_column(String(100), nullable=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
     country: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
+    # ── Household Info ──────────────────────────────────────
+    tax_household_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     # ── Insurance Info ──────────────────────────────────────
     currently_insured: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     life_event: Mapped[str | None] = mapped_column(Text, nullable=True)
     life_event_details: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-    # ── Medical Info ────────────────────────────────────────
-    doctor_name: Mapped[str | None] = mapped_column(Text, nullable=True)  # encrypted
-    doctor_specialty: Mapped[str | None] = mapped_column(Text, nullable=True)
-    medicines: Mapped[str | None] = mapped_column(Text, nullable=True)  # encrypted
 
     # ── Preferences ─────────────────────────────────────────
     preferred_time_slot: Mapped[str | None] = mapped_column(Text, nullable=True)

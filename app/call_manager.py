@@ -34,6 +34,7 @@ from app.repository import CallSessionRepository, CustomerDataRepository, Transc
 from app.twilio_handler import TwilioMediaStreamHandler
 from app.call_context import CallContext, get_call_context, remove_call_context
 from app.dynamic_prompts import generate_dynamic_system_prompt
+from app.dynamic_collection_flow import fetch_dynamic_collection_flow, build_dynamic_prompt
 
 logger = structlog.get_logger(__name__)
 
@@ -103,8 +104,14 @@ class CallManager:
         else:
             logger.info("no_call_context", call_id=self.call_id, using_default_prompt=True)
 
-        # Generate dynamic system prompt based on context
-        system_prompt = generate_dynamic_system_prompt(self.call_context)
+        # Fetch dynamic collection flow from backend API
+        flow_data = await fetch_dynamic_collection_flow()
+        
+        # Generate base dynamic system prompt based on context
+        base_prompt = generate_dynamic_system_prompt(self.call_context)
+        
+        # Apply dynamic questions from flow data (if available)
+        system_prompt = build_dynamic_prompt(flow_data, base_prompt)
 
         # Create DB record (non-fatal if fails)
         try:
@@ -421,13 +428,16 @@ class CallManager:
         logger.info("call_cleaned_up", call_id=self.call_id)
 
     async def _send_call_complete_webhook(self) -> None:
-        """Send call results to the Express backend when call completes."""
+        """Send call results to the backend when call completes."""
+        # Try callback URL from call context first, then fallback to configured backend URL
         callback_url = ""
         if self.call_context and self.call_context.callback_url:
             callback_url = self.call_context.callback_url
+        else:
+            callback_url = self.settings.backend_webhook_url
         
         if not callback_url:
-            logger.info("no_callback_url_skipping_webhook", call_id=self.call_id)
+            logger.info("no_callback_url_configured", call_id=self.call_id)
             return
 
         # Gather all call data
@@ -624,39 +634,36 @@ class CallManager:
                             extracted["currently_insured"] = True
                         break
 
-        # Extract doctor name
+        # Extract phone number
         for msg in customer_messages:
-            doctor_match = re.search(r'(?:doctor|dr\.?)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)', msg, re.IGNORECASE)
-            if doctor_match:
-                extracted["doctor_name"] = doctor_match.group(1).title()
+            phone_match = re.search(r'(?:\+?1?[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}', msg)
+            if phone_match:
+                extracted["phone_number"] = phone_match.group(0).strip()
                 break
 
-        # Extract doctor specialty
-        specialties = ["cardiologist", "dermatologist", "neurologist", "oncologist", "pediatrician",
-                      "primary care", "family doctor", "general practitioner", "internist"]
+        # Extract household income
         for msg in customer_messages:
-            msg_lower = msg.lower()
-            for specialty in specialties:
-                if specialty in msg_lower:
-                    extracted["doctor_specialty"] = specialty.title()
-                    break
-            if "doctor_specialty" in extracted:
+            income_match = re.search(r'(?:income|make|earn|salary)[^\d]*(\$?[\d,]+(?:\.\d{2})?[kK]?)', msg, re.IGNORECASE)
+            if income_match:
+                extracted["household_income"] = income_match.group(1)
+                break
+            # Also look for standalone dollar amounts
+            dollar_match = re.search(r'\$([\d,]+(?:\.\d{2})?[kK]?)', msg)
+            if dollar_match:
+                extracted["household_income"] = dollar_match.group(0)
                 break
 
-        # Extract medications
+        # Extract tax household size
         for i, t in enumerate(transcript):
-            if t.get("role") == "agent" and any(word in t["content"].lower() for word in ["medication", "medicine", "prescription"]):
-                # Check next few customer responses for medicine names
-                medicines = []
-                for j in range(i + 1, min(i + 5, len(transcript))):
+            if t.get("role") == "agent" and "household" in t["content"].lower() and "how many" in t["content"].lower():
+                for j in range(i + 1, min(i + 3, len(transcript))):
                     if transcript[j].get("role") == "customer":
-                        msg = transcript[j]["content"]
-                        # Look for capitalized words that might be drug names
-                        med_matches = re.findall(r'\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]+)?)\b', msg)
-                        medicines.extend(med_matches)
-                if medicines:
-                    extracted["medicines"] = ", ".join(set(medicines))
-                    break
+                        size_match = re.search(r'\b(\d{1,2})\b', transcript[j]["content"])
+                        if size_match:
+                            size = int(size_match.group(1))
+                            if 1 <= size <= 10:
+                                extracted["tax_household_size"] = size
+                        break
 
         # Extract life event
         life_events = {

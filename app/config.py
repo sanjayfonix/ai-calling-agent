@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     app_env: str = Field("production", alias="APP_ENV")
     app_debug: bool = Field(False, alias="APP_DEBUG")
     base_url: str = Field("https://yourdomain.com", alias="BASE_URL")
+    
+    # ── Backend API ─────────────────────────────────────────
+    backend_webhook_url: str = Field(
+        "https://xd363v4j-5000.inc1.devtunnels.ms/api/v1/webhooks/call-complete",
+        alias="BACKEND_WEBHOOK_URL"
+    )
 
     # ── Security ────────────────────────────────────────────
     secret_key: str = Field("change-me", alias="SECRET_KEY")
