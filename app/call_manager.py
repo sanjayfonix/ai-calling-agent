@@ -329,9 +329,16 @@ class CallManager:
                                "message": "Consent denied. End the call politely."})
 
     async def _handle_save_data(self, args: dict) -> str:
-        # Always store in memory first (survives even if DB fails)
-        self._collected_data.update(args)
-        logger.info("customer_data_collected", call_id=self.call_id, fields=list(args.keys()))
+        # Always store in memory first (survives even if DB fails).
+        # Do not keep null/blank values because they can overwrite real values
+        # extracted from transcript later during webhook payload assembly.
+        clean_args = {
+            k: v
+            for k, v in args.items()
+            if v is not None and (not isinstance(v, str) or v.strip())
+        }
+        self._collected_data.update(clean_args)
+        logger.info("customer_data_collected", call_id=self.call_id, fields=list(clean_args.keys()))
 
         # Database removed - data sent to backend webhook instead
         # if not self.db_call_id:
@@ -546,7 +553,11 @@ class CallManager:
         # Layer 2: In-memory collected data from save_customer_data calls
         if self._collected_data:
             # Remove internal tracking fields
-            clean_collected = {k: v for k, v in self._collected_data.items() if k != "consent_given"}
+            clean_collected = {
+                k: v
+                for k, v in self._collected_data.items()
+                if k != "consent_given" and v is not None and (not isinstance(v, str) or v.strip())
+            }
             final_customer_data.update(clean_collected)
 
         # Layer 3: DB customer data (highest priority, overwrites)
@@ -670,6 +681,17 @@ class CallManager:
                     extracted["age"] = age
                     break
 
+        # Extract date of birth
+        for msg in customer_messages:
+            dob_match = re.search(
+                r'\b(\d{4}-\d{2}-\d{2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{1,2}(?:,\s*\d{4})?)\b',
+                msg,
+                re.IGNORECASE,
+            )
+            if dob_match:
+                extracted["date_of_birth"] = dob_match.group(1)
+                break
+
         # Extract zip code (5 digit number)
         for msg in customer_messages:
             zip_match = re.search(r'\b(\d{5})\b', msg)
@@ -698,6 +720,31 @@ class CallManager:
                     break
             if "state" in extracted:
                 break
+
+        # Extract state abbreviation when customer gives short form (e.g., "CA")
+        if "state" not in extracted:
+            state_abbrev = {
+                "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",
+                "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware", "FL": "Florida", "GA": "Georgia",
+                "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois", "IN": "Indiana", "IA": "Iowa",
+                "KS": "Kansas", "KY": "Kentucky", "LA": "Louisiana", "ME": "Maine", "MD": "Maryland",
+                "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota", "MS": "Mississippi", "MO": "Missouri",
+                "MT": "Montana", "NE": "Nebraska", "NV": "Nevada", "NH": "New Hampshire", "NJ": "New Jersey",
+                "NM": "New Mexico", "NY": "New York", "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio",
+                "OK": "Oklahoma", "OR": "Oregon", "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina",
+                "SD": "South Dakota", "TN": "Tennessee", "TX": "Texas", "UT": "Utah", "VT": "Vermont",
+                "VA": "Virginia", "WA": "Washington", "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming",
+            }
+            for i, t in enumerate(transcript):
+                if t.get("role") == "agent" and "state" in t.get("content", "").lower():
+                    for j in range(i + 1, min(i + 3, len(transcript))):
+                        if transcript[j].get("role") == "customer":
+                            resp = transcript[j].get("content", "").strip().upper()
+                            if resp in state_abbrev:
+                                extracted["state"] = state_abbrev[resp]
+                            break
+                if "state" in extracted:
+                    break
 
         # Extract address (look for street address patterns)
         for i, t in enumerate(transcript):
@@ -731,6 +778,13 @@ class CallManager:
                             extracted["currently_insured"] = True
                         break
 
+        # Extract country
+        for msg in customer_messages:
+            msg_lower = msg.lower()
+            if any(token in msg_lower for token in ["united states", "usa", "us", "u.s."]):
+                extracted["country"] = "USA"
+                break
+
         # Extract phone number
         for msg in customer_messages:
             phone_match = re.search(r'(?:\+?1?[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}', msg)
@@ -750,6 +804,13 @@ class CallManager:
                 extracted["household_income"] = dollar_match.group(0)
                 break
 
+        # Extract explicit income range (e.g., "30000-50000", "30k to 50k")
+        for msg in customer_messages:
+            range_match = re.search(r'\b(\$?\d{2,6}[kK]?)\s*(?:-|to)\s*(\$?\d{2,6}[kK]?)\b', msg, re.IGNORECASE)
+            if range_match:
+                extracted["income_range"] = f"{range_match.group(1)}-{range_match.group(2)}"
+                break
+
         # Extract tax household size
         for i, t in enumerate(transcript):
             if t.get("role") == "agent" and "household" in t["content"].lower() and "how many" in t["content"].lower():
@@ -759,7 +820,7 @@ class CallManager:
                         if size_match:
                             size = int(size_match.group(1))
                             if 1 <= size <= 10:
-                                extracted["tax_household_size"] = size
+                                extracted["household_size"] = size
                         break
 
         # Extract life event
@@ -790,6 +851,11 @@ class CallManager:
             if "life_event" in extracted:
                 break
 
+        if extracted.get("life_event") == "moving":
+            extracted["sep_reason"] = "Relocation"
+        elif extracted.get("life_event") == "job_loss":
+            extracted["sep_reason"] = "Loss of coverage"
+
         # Extract preferred time slot from transcript
         for i, t in enumerate(transcript):
             if t.get("role") == "agent" and "appointment" in t["content"].lower():
@@ -800,10 +866,79 @@ class CallManager:
                         # Look for date/time patterns
                         time_match = re.search(r'(morning|afternoon|evening|night|\d{1,2}:\d{2}|\d{1,2}\s*(?:am|pm))', msg, re.IGNORECASE)
                         if time_match:
-                            extracted["preferred_time_slot"] = msg[:100]
+                            extracted["preferred_contact_time"] = msg[:100]
                         break
-                if "preferred_time_slot" in extracted:
+                if "preferred_contact_time" in extracted:
                     break
+
+        # Extract doctor information
+        for i, t in enumerate(transcript):
+            if t.get("role") == "agent" and "doctor" in t.get("content", "").lower():
+                for j in range(i + 1, min(i + 3, len(transcript))):
+                    if transcript[j].get("role") == "customer":
+                        msg = transcript[j].get("content", "")
+                        doc_match = re.search(r'(?:dr\.?\s+)?([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)', msg)
+                        if doc_match:
+                            extracted["doctor_name"] = doc_match.group(1)
+                        break
+                if "doctor_name" in extracted:
+                    break
+
+        for i, t in enumerate(transcript):
+            if t.get("role") == "agent" and "specialty" in t.get("content", "").lower():
+                for j in range(i + 1, min(i + 3, len(transcript))):
+                    if transcript[j].get("role") == "customer":
+                        msg = transcript[j].get("content", "").strip()
+                        if msg:
+                            extracted["doctor_specialty"] = msg[:80]
+                        break
+                if "doctor_specialty" in extracted:
+                    break
+
+        # Extract medication
+        for i, t in enumerate(transcript):
+            if t.get("role") == "agent" and "medication" in t.get("content", "").lower():
+                for j in range(i + 1, min(i + 3, len(transcript))):
+                    if transcript[j].get("role") == "customer":
+                        msg = transcript[j].get("content", "")
+                        med_match = re.search(r'([A-Za-z][A-Za-z0-9\-]{2,})', msg)
+                        if med_match and msg.lower() not in {"none", "no", "not taking any"}:
+                            extracted["medication_name"] = med_match.group(1)
+                        break
+                if "medication_name" in extracted:
+                    break
+
+        # Extract meeting preference and scheduled datetime
+        for i, t in enumerate(transcript):
+            agent_text = t.get("content", "").lower()
+            if t.get("role") == "agent" and any(k in agent_text for k in ["follow-up", "appointment", "schedule", "meeting"]):
+                for j in range(i + 1, min(i + 3, len(transcript))):
+                    if transcript[j].get("role") == "customer":
+                        resp = transcript[j].get("content", "")
+                        resp_lower = resp.lower()
+                        if any(w in resp_lower for w in ["yes", "sure", "okay", "works", "fine"]):
+                            extracted["wants_meeting"] = True
+                        elif any(w in resp_lower for w in ["no", "not now", "later"]):
+                            extracted["wants_meeting"] = False
+                        iso_match = re.search(r'\b\d{4}-\d{2}-\d{2}t\d{2}:\d{2}(?::\d{2})?z?\b', resp, re.IGNORECASE)
+                        if iso_match:
+                            extracted["scheduled_meeting_datetime"] = iso_match.group(0)
+                        break
+
+        # Extract ACA preference and whether explanation was provided
+        for i, t in enumerate(transcript):
+            if t.get("role") == "agent" and any(k in t.get("content", "").lower() for k in ["affordable care act", "aca"]):
+                for j in range(i + 1, min(i + 3, len(transcript))):
+                    if transcript[j].get("role") == "customer":
+                        resp = transcript[j].get("content", "").lower()
+                        if any(w in resp for w in ["yes", "sure", "okay", "please"]):
+                            extracted["wants_aca_explanation"] = True
+                        elif any(w in resp for w in ["no", "nope", "not needed"]):
+                            extracted["wants_aca_explanation"] = False
+                        break
+
+        if any(any(k in t.get("content", "").lower() for k in ["affordable care act", "marketplace", "bronze", "silver", "gold", "platinum"]) for t in transcript if t.get("role") == "agent"):
+            extracted["aca_explained"] = True
 
         # Extract ACA-related info
         for i, t in enumerate(transcript):
