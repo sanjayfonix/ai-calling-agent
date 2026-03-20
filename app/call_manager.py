@@ -41,6 +41,38 @@ class CallManager:
     _active_calls: dict[str, "CallManager"] = {}
     # Audio debug counters (class-level, reset per call)
     _audio_stats: dict[str, int] = {"openai_received": 0, "twilio_sent": 0, "skipped": 0}
+    # Canonical customer payload schema expected by callback consumers.
+    _CUSTOMER_DATA_FIELDS: list[str] = [
+        "full_name",
+        "email",
+        "phone_number",
+        "date_of_birth",
+        "address",
+        "country",
+        "zipcode",
+        "state",
+        "age",
+        "income_range",
+        "household_size",
+        "currently_insured",
+        "life_event",
+        "life_event_details",
+        "sep_reason",
+        "preferred_contact_time",
+        "wants_aca_explanation",
+        "aca_explained",
+        "doctor_name",
+        "doctor_specialty",
+        "medication_name",
+        "wants_meeting",
+        "scheduled_meeting_datetime",
+    ]
+    # Backward-compat keys that may still arrive from prompt/tool extraction.
+    _CUSTOMER_DATA_ALIASES: dict[str, str] = {
+        "tax_household_size": "household_size",
+        "preferred_time_slot": "preferred_contact_time",
+        "household_income": "income_range",
+    }
 
     def __init__(self, websocket: WebSocket, temp_context_id: str | None=None):
         self.settings = get_settings()
@@ -541,17 +573,21 @@ class CallManager:
             "consent_status": consent_status,
             "recording_url": recording_url,
             "agent_context": agent_context,  # All agent data for linking
-            "customer_data": final_customer_data if final_customer_data else None,  # Customer responses
+            "customer_data": self._normalize_customer_data(final_customer_data),  # Customer responses with complete schema
             "transcript": transcript,
+        }
+
+        non_null_customer_data = {
+            key: value for key, value in payload["customer_data"].items() if value is not None
         }
 
         logger.info(
             "sending_call_complete_webhook",
             call_id=self.call_id,
             url=callback_url,
-            has_customer_data=bool(final_customer_data),
-            customer_fields=list(final_customer_data.keys()) if final_customer_data else [],
-            customer_data_preview=final_customer_data if final_customer_data else None,
+            has_customer_data=bool(non_null_customer_data),
+            customer_fields=list(non_null_customer_data.keys()),
+            customer_data_preview=non_null_customer_data if non_null_customer_data else None,
         )
 
         try:
@@ -565,6 +601,30 @@ class CallManager:
                 )
         except Exception as e:
             logger.error("call_complete_webhook_error", call_id=self.call_id, error=str(e))
+
+    def _normalize_customer_data(self, raw_data: dict[str, Any]) -> dict[str, Any]:
+        """Return a stable customer_data payload with all expected keys.
+
+        Missing fields are explicitly set to None so the backend can persist a
+        complete row shape without guessing absent keys.
+        """
+        normalized = {field: None for field in self._CUSTOMER_DATA_FIELDS}
+
+        for key, value in (raw_data or {}).items():
+            if key in normalized:
+                normalized[key] = value
+                continue
+
+            alias_target = self._CUSTOMER_DATA_ALIASES.get(key)
+            if alias_target and normalized.get(alias_target) is None:
+                normalized[alias_target] = value
+
+        # Treat blank strings as missing values.
+        for key, value in normalized.items():
+            if isinstance(value, str) and not value.strip():
+                normalized[key] = None
+
+        return normalized
 
     def _extract_data_from_transcript(self, transcript: list[dict]) -> dict:
         """Extract customer data from conversation transcript as a fallback.

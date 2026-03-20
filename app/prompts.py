@@ -237,6 +237,10 @@ TOOL_DEFINITIONS = [
                     "type": "string",
                     "description": "Best phone number to reach the customer (10 digits)",
                 },
+                "age": {
+                    "type": "integer",
+                    "description": "Customer age in years",
+                },
                 "zipcode": {
                     "type": "string",
                     "description": "Customer's US zip code — MUST be exactly 5 digits (e.g. '33101', '90210'). Do NOT save if not exactly 5 digits.",
@@ -253,9 +257,17 @@ TOOL_DEFINITIONS = [
                     "type": "string",
                     "description": "Country of residence (default: United States)",
                 },
+                "income_range": {
+                    "type": "string",
+                    "description": "Customer income range (example: '30000-50000')",
+                },
+                "household_size": {
+                    "type": "integer",
+                    "description": "Number of people in the customer's household",
+                },
                 "tax_household_size": {
                     "type": "integer",
-                    "description": "Number of people in the customer's tax household including themselves (1-10)",
+                    "description": "Legacy alias of household_size: number of people in the customer's tax household including themselves (1-10)",
                 },
                 "currently_insured": {
                     "type": "boolean",
@@ -269,9 +281,17 @@ TOOL_DEFINITIONS = [
                     "type": "string",
                     "description": "Additional details about the life event",
                 },
+                "sep_reason": {
+                    "type": "string",
+                    "description": "Special Enrollment Period reason (example: 'Relocation')",
+                },
+                "preferred_contact_time": {
+                    "type": "string",
+                    "description": "Preferred contact time for follow-up (example: '10am-12pm')",
+                },
                 "preferred_time_slot": {
                     "type": "string",
-                    "description": "Customer's preferred time for follow-up call",
+                    "description": "Legacy alias of preferred_contact_time: customer's preferred time for follow-up call",
                 },
                 "wants_aca_explanation": {
                     "type": "boolean",
@@ -280,6 +300,30 @@ TOOL_DEFINITIONS = [
                 "aca_explained": {
                     "type": "boolean",
                     "description": "Whether ACA was explained during this call",
+                },
+                "doctor_name": {
+                    "type": "string",
+                    "description": "Primary doctor name",
+                },
+                "doctor_specialty": {
+                    "type": "string",
+                    "description": "Doctor specialty",
+                },
+                "medication_name": {
+                    "type": "string",
+                    "description": "Current medication name",
+                },
+                "wants_meeting": {
+                    "type": "boolean",
+                    "description": "Whether customer wants to schedule a follow-up meeting/call",
+                },
+                "scheduled_meeting_datetime": {
+                    "type": "string",
+                    "description": "Scheduled meeting datetime in ISO 8601 format",
+                },
+                "household_income": {
+                    "type": "string",
+                    "description": "Legacy alias of income_range",
                 },
             },
             "required": ["full_name"],
