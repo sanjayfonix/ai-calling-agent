@@ -644,6 +644,20 @@ class CallManager:
         if not transcript:
             return extracted
 
+        noise_tokens = {
+            "bye",
+            "bye.",
+            "bye everyone",
+            "bye, everyone.",
+            "thank you",
+            "thank you.",
+            "thank you very much",
+            "thank you very much.",
+            "cheers",
+            "peace",
+            "but",
+        }
+
         customer_messages = [t["content"] for t in transcript if t.get("role") == "customer"]
         agent_messages = [t["content"] for t in transcript if t.get("role") == "agent"]
         all_text = " ".join(customer_messages).lower()
@@ -672,14 +686,41 @@ class CallManager:
                 extracted["full_name"] = name_match.group(1).title()
                 break
 
+        # Fallback: parse agent confirmations (e.g., "I have your name as Zuber")
+        if "full_name" not in extracted:
+            for msg in agent_messages:
+                name_match = re.search(r'i have your name as\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)', msg, re.IGNORECASE)
+                if name_match:
+                    extracted["full_name"] = name_match.group(1).strip().title()
+                    break
+
+        if "full_name" not in extracted:
+            for msg in agent_messages:
+                name_match = re.search(r'thank you,\s*([A-Za-z]+(?:\s+[A-Za-z]+)?)', msg, re.IGNORECASE)
+                if name_match:
+                    candidate = name_match.group(1).strip()
+                    if candidate.lower() not in {"everyone", "sir", "maam", "ma\"am"}:
+                        extracted["full_name"] = candidate.title()
+                        break
+
         # Extract age ("I am X years old" or just a number in context)
         for msg in customer_messages:
-            age_match = re.search(r'(?:i\'?m|i am|age is)\s*(\d{1,3})(?:\s*years)?', msg, re.IGNORECASE)
+            age_match = re.search(r'(?:i\'?m|i am|age is|yeah|yes)?\s*(\d{1,3})(?:\s*years?(?:\s*old)?)', msg, re.IGNORECASE)
             if age_match:
                 age = int(age_match.group(1))
                 if 18 <= age <= 120:
                     extracted["age"] = age
                     break
+
+        # Fallback: parse age from agent confirmation/question context
+        if "age" not in extracted:
+            for msg in agent_messages:
+                age_match = re.search(r'\b(\d{1,3})\s*years?\s*old\b', msg, re.IGNORECASE)
+                if age_match:
+                    age = int(age_match.group(1))
+                    if 18 <= age <= 120:
+                        extracted["age"] = age
+                        break
 
         # Extract date of birth
         for msg in customer_messages:
@@ -720,6 +761,17 @@ class CallManager:
                     break
             if "state" in extracted:
                 break
+
+        # Fallback: parse state from agent confirmation (e.g., "Great, Florida")
+        if "state" not in extracted:
+            for msg in agent_messages:
+                msg_lower = msg.lower()
+                for state in us_states:
+                    if re.search(rf'\b{re.escape(state)}\b', msg_lower):
+                        extracted["state"] = state.title()
+                        break
+                if "state" in extracted:
+                    break
 
         # Extract state abbreviation when customer gives short form (e.g., "CA")
         if "state" not in extracted:
@@ -792,6 +844,13 @@ class CallManager:
                 extracted["phone_number"] = phone_match.group(0).strip()
                 break
 
+        if "phone_number" not in extracted:
+            for msg in agent_messages:
+                phone_match = re.search(r'(?:\+?1?[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}', msg)
+                if phone_match:
+                    extracted["phone_number"] = re.sub(r'\D', '', phone_match.group(0))[-10:]
+                    break
+
         # Extract household income
         for msg in customer_messages:
             income_match = re.search(r'(?:income|make|earn|salary)[^\d]*(\$?[\d,]+(?:\.\d{2})?[kK]?)', msg, re.IGNORECASE)
@@ -816,6 +875,9 @@ class CallManager:
             if t.get("role") == "agent" and "household" in t["content"].lower() and "how many" in t["content"].lower():
                 for j in range(i + 1, min(i + 3, len(transcript))):
                     if transcript[j].get("role") == "customer":
+                        response_text = transcript[j]["content"].strip().lower()
+                        if response_text in noise_tokens:
+                            continue
                         size_match = re.search(r'\b(\d{1,2})\b', transcript[j]["content"])
                         if size_match:
                             size = int(size_match.group(1))
@@ -863,6 +925,8 @@ class CallManager:
                 for j in range(i + 1, min(i + 3, len(transcript))):
                     if transcript[j].get("role") == "customer":
                         msg = transcript[j]["content"]
+                        if msg.strip().lower() in noise_tokens:
+                            continue
                         # Look for date/time patterns
                         time_match = re.search(r'(morning|afternoon|evening|night|\d{1,2}:\d{2}|\d{1,2}\s*(?:am|pm))', msg, re.IGNORECASE)
                         if time_match:
@@ -870,6 +934,20 @@ class CallManager:
                         break
                 if "preferred_contact_time" in extracted:
                     break
+
+        # Parse meeting confirmation from agent summary lines
+        for msg in agent_messages:
+            lowered = msg.lower()
+            if any(token in lowered for token in ["i have you down for", "you'll speak with", "scheduled time"]):
+                extracted["wants_meeting"] = True
+                time_phrase = re.search(
+                    r'(tomorrow\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}(?::\d{2})?\s*(?:am|pm)|morning|afternoon|evening|night)',
+                    msg,
+                    re.IGNORECASE,
+                )
+                if time_phrase and "preferred_contact_time" not in extracted:
+                    extracted["preferred_contact_time"] = time_phrase.group(1)
+                break
 
         # Extract doctor information
         for i, t in enumerate(transcript):
