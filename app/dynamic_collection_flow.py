@@ -15,7 +15,7 @@ _flow_cache: Dict[str, Any] = {}
 _cache_timestamp: datetime | None = None
 _cache_ttl_seconds = 300  # 5 minutes
 
-DYNAMIC_FLOW_API_URL = "https://xd363v4j-5000.inc1.devtunnels.ms/api/v1/admin/ai-collection-flows/getActiveAiCollectionFlows"
+DYNAMIC_FLOW_API_URL = "https://phpstack-1472627-5654843.cloudwaysapps.com/api/v1/admin/ai-collection-flows/getActiveAiCollectionFlows"
 
 
 async def fetch_dynamic_collection_flow() -> Dict[str, Any] | None:
