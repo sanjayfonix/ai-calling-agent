@@ -33,7 +33,7 @@
 
 5. **CallManager → Backend API (when call ends)**
    ```
-   POST https://xd363v4j-5000.inc1.devtunnels.ms/api/ai-call/call-complete
+   POST https://phpstack-1472627-5654843.cloudwaysapps.com
    Body: {
      call_sid,
      agent_context: {agent_id, agent_name, ...},
@@ -85,7 +85,7 @@
 
 5. **CallManager → Backend API (when call ends)**
    ```
-   POST https://xd363v4j-5000.inc1.devtunnels.ms/api/ai-call/call-complete
+   POST https://phpstack-1472627-5654843.cloudwaysapps.com
    Body: {
      call_sid,
      agent_context: {agent_id, agent_name, ...},
@@ -117,7 +117,7 @@
    - When: Call starts
    - Contains: Question list
 
-✅ **Call Complete Webhook**: `https://xd363v4j-5000.inc1.devtunnels.ms/api/ai-call/call-complete`
+✅ **Call Complete Webhook**: `https://phpstack-1472627-5654843.cloudwaysapps.com`
    - Sent: Once per call
    - When: Call ends
    - Contains: Agent context + Customer data + Transcript

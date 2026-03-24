@@ -240,7 +240,7 @@ YOUR_GENERATED_API_KEY_HERE
 
 **Webhook URL (receives customer data):**
 ```
-https://xd363v4j-5000.inc1.devtunnels.ms/api/ai-call/call-complete
+https://phpstack-1472627-5654843.cloudwaysapps.com
 ```
 
 **Dynamic Questions API:**
