@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     
     # ── Backend API ─────────────────────────────────────────
     backend_webhook_url: str = Field(
-        "https://xd363v4j-5000.inc1.devtunnels.ms/api/ai-call/call-complete",
+        "https://phpstack-1472627-5654843.cloudwaysapps.com/api/ai-call/call-complete",
         alias="BACKEND_WEBHOOK_URL"
     )
 
