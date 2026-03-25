@@ -601,17 +601,44 @@ class CallManager:
             customer_data_preview=non_null_customer_data if non_null_customer_data else None,
         )
 
+        # Explicit payload log for callback debugging in Node.js integration.
+        logger.info(
+            "call_complete_webhook_payload",
+            call_id=self.call_id,
+            url=callback_url,
+            payload=payload,
+            transcript_entries=len(transcript),
+        )
+
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.post(callback_url, json=payload)
-                logger.info(
-                    "call_complete_webhook_sent",
-                    call_id=self.call_id,
-                    status_code=response.status_code,
-                    response=response.text[:200] if response.text else "",
-                )
+                if response.status_code >= 400:
+                    logger.error(
+                        "call_complete_webhook_failed",
+                        call_id=self.call_id,
+                        url=callback_url,
+                        status_code=response.status_code,
+                        callback_hit=True,
+                        response=response.text[:500] if response.text else "",
+                    )
+                else:
+                    logger.info(
+                        "call_complete_webhook_sent",
+                        call_id=self.call_id,
+                        url=callback_url,
+                        status_code=response.status_code,
+                        callback_hit=True,
+                        response=response.text[:500] if response.text else "",
+                    )
         except Exception as e:
-            logger.error("call_complete_webhook_error", call_id=self.call_id, error=str(e))
+            logger.error(
+                "call_complete_webhook_error",
+                call_id=self.call_id,
+                url=callback_url,
+                callback_hit=False,
+                error=str(e),
+            )
 
     def _normalize_customer_data(self, raw_data: dict[str, Any]) -> dict[str, Any]:
         """Return a stable customer_data payload with all expected keys.
