@@ -19,6 +19,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from starlette.websockets import WebSocket
@@ -33,6 +34,9 @@ from app.dynamic_prompts import generate_dynamic_system_prompt
 from app.dynamic_collection_flow import fetch_dynamic_collection_flow, build_dynamic_prompt
 
 logger = structlog.get_logger(__name__)
+
+LEGACY_CALLBACK_HOST = "phpstack-1472627-5654843.cloudwaysapps.com"
+REQUIRED_CALLBACK_URL = "https://xd363v4j-5000.inc1.devtunnels.ms/api/ai-call/call-complete"
 
 
 class CallManager:
@@ -504,6 +508,16 @@ class CallManager:
             callback_url = self.call_context.callback_url
         else:
             callback_url = self.settings.backend_webhook_url
+
+        # Safety override: route any legacy Cloudways callback URL to the required devtunnels endpoint.
+        if callback_url and LEGACY_CALLBACK_HOST in callback_url:
+            logger.warning(
+                "callback_url_overridden",
+                call_id=self.call_id,
+                old_url=callback_url,
+                new_url=REQUIRED_CALLBACK_URL,
+            )
+            callback_url = REQUIRED_CALLBACK_URL
         
         if not callback_url:
             logger.info("no_callback_url_configured", call_id=self.call_id)
@@ -599,6 +613,28 @@ class CallManager:
             has_customer_data=bool(non_null_customer_data),
             customer_fields=list(non_null_customer_data.keys()),
             customer_data_preview=non_null_customer_data if non_null_customer_data else None,
+        )
+
+        parsed_callback = urlparse(callback_url)
+        logger.info(
+            "call_complete_webhook_target",
+            call_id=self.call_id,
+            method="POST",
+            callback_host=parsed_callback.netloc,
+            callback_path=parsed_callback.path,
+            callback_query=parsed_callback.query or None,
+        )
+
+        logger.info(
+            "call_complete_webhook_data_summary",
+            call_id=self.call_id,
+            call_sid=payload.get("call_sid"),
+            status=payload.get("status"),
+            consent_status=payload.get("consent_status"),
+            agent_context=agent_context,
+            customer_data=non_null_customer_data,
+            transcript_entries=len(transcript),
+            transcript_preview=transcript[:2],
         )
 
         # Explicit payload log for callback debugging in Node.js integration.
