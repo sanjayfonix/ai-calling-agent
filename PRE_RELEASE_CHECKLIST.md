@@ -245,7 +245,7 @@ https://phpstack-1472627-5654843.cloudwaysapps.com
 
 **Dynamic Questions API:**
 ```
-https://xd363v4j-5000.inc1.devtunnels.ms/api/v1/admin/ai-collection-flows/getActiveAiCollectionFlows
+https://phpstack-1472627-5654843.cloudwaysapps.com/api/v1/admin/ai-collection-flows/getActiveAiCollectionFlows
 ```
 
 - [ ] Backend team has all credentials

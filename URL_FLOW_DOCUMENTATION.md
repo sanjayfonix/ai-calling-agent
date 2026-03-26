@@ -27,7 +27,7 @@
 
 4. **CallManager → Backend API (when call starts)**
    ```
-   GET https://xd363v4j-5000.inc1.devtunnels.ms/api/v1/admin/ai-collection-flows/getActiveAiCollectionFlows
+   GET https://phpstack-1472627-5654843.cloudwaysapps.com/api/v1/admin/ai-collection-flows/getActiveAiCollectionFlows
    ```
    - ✅ Fetches dynamic questions
 
@@ -79,7 +79,7 @@
 
 4. **CallManager → Backend API (when call starts)**
    ```
-   GET https://xd363v4j-5000.inc1.devtunnels.ms/api/v1/admin/ai-collection-flows/getActiveAiCollectionFlows
+   GET https://phpstack-1472627-5654843.cloudwaysapps.com/api/v1/admin/ai-collection-flows/getActiveAiCollectionFlows
    ```
    - ✅ Fetches dynamic questions
 
@@ -112,7 +112,7 @@
 ## Important Notes
 
 ### URLs That ARE Hit:
-✅ **Dynamic Questions**: `https://xd363v4j-5000.inc1.devtunnels.ms/api/v1/admin/ai-collection-flows/getActiveAiCollectionFlows`
+✅ **Dynamic Questions**: `https://phpstack-1472627-5654843.cloudwaysapps.com/api/v1/admin/ai-collection-flows/getActiveAiCollectionFlows`
    - Fetched: Once per call (cached 5 min)
    - When: Call starts
    - Contains: Question list
