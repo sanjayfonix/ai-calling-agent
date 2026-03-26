@@ -35,8 +35,7 @@ from app.dynamic_collection_flow import fetch_dynamic_collection_flow, build_dyn
 
 logger = structlog.get_logger(__name__)
 
-LEGACY_CALLBACK_HOST = "phpstack-1472627-5654843.cloudwaysapps.com"
-REQUIRED_CALLBACK_URL = "https://xd363v4j-5000.inc1.devtunnels.ms/api/ai-call/call-complete"
+REQUIRED_CALLBACK_URL = "https://phpstack-1472627-5654843.cloudwaysapps.com/api/ai-call/call-complete"
 
 
 class CallManager:
@@ -509,10 +508,17 @@ class CallManager:
         else:
             callback_url = self.settings.backend_webhook_url
 
-        # Safety override: route any legacy Cloudways callback URL to the required devtunnels endpoint.
-        if callback_url and LEGACY_CALLBACK_HOST in callback_url:
+        # Always send call-complete payloads to the required Cloudways endpoint.
+        if not callback_url:
             logger.warning(
-                "callback_url_overridden",
+                "callback_url_missing_using_required",
+                call_id=self.call_id,
+                new_url=REQUIRED_CALLBACK_URL,
+            )
+            callback_url = REQUIRED_CALLBACK_URL
+        elif callback_url.rstrip("/") != REQUIRED_CALLBACK_URL:
+            logger.warning(
+                "callback_url_forced_to_required",
                 call_id=self.call_id,
                 old_url=callback_url,
                 new_url=REQUIRED_CALLBACK_URL,
