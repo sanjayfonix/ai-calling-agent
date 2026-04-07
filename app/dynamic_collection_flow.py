@@ -93,6 +93,31 @@ def build_dynamic_prompt(flow_data: Dict[str, Any] | None, base_prompt: str) -> 
     
     # Build the dynamic questions section
     # API returns: [{"key": "consent", "prompt": "before we begin..."}, ...]
+    present_keys = {
+        str(q.get("key", "")).strip().lower()
+        for q in questions
+        if isinstance(q, dict)
+    }
+
+    mandatory_questions = []
+    if "full_name" not in present_keys:
+        mandatory_questions.extend([
+            "1) May I start with your full name?",
+            "",
+        ])
+    if "email" not in present_keys:
+        mandatory_questions.extend([
+            "2) And what's the best email to reach you at?",
+            "- Must contain @ and a domain.",
+            "",
+        ])
+    if not ({"phone_number", "phone"} & present_keys):
+        mandatory_questions.extend([
+            "3) What's the best phone number to reach you at?",
+            "- Must be a valid US phone number (10 digits).",
+            "",
+        ])
+
     questions_text = []
     for idx, q in enumerate(questions, 1):
         question_key = q.get("key", "")
@@ -116,7 +141,7 @@ def build_dynamic_prompt(flow_data: Dict[str, Any] | None, base_prompt: str) -> 
             questions_text.append("")  # Empty line between questions
     
     # Replace the STRUCTURED DATA COLLECTION FLOW section in base prompt
-    dynamic_questions_block = "\n".join(questions_text)
+    dynamic_questions_block = "\n".join(mandatory_questions + questions_text)
     
     # Find and replace the questions section
     start_marker = "========================\nSTRUCTURED DATA COLLECTION FLOW\n========================"

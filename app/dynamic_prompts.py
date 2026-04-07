@@ -218,6 +218,9 @@ DATA INTEGRITY RULES
 - Internally track collected fields.
 - DO NOT lose previously collected data.
 - Validate inputs before proceeding.
+- full_name, email, and phone_number are mandatory for call completion.
+- If any mandatory field is missing or unclear, ask again politely until captured.
+- Do NOT call end_call with reason "completed" until all three mandatory fields are saved.
 - Never accept invalid zip codes.
 - Never accept invalid US states.
 - Do not loop endlessly on validation.

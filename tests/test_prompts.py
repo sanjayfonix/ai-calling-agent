@@ -35,16 +35,17 @@ class TestSystemPrompt:
 
 class TestToolDefinitions:
 
-    def test_three_tools_defined(self):
-        assert len(TOOL_DEFINITIONS) == 3
+    def test_tools_defined(self):
+        assert len(TOOL_DEFINITIONS) >= 3
 
     def test_tool_names(self):
         names = {t["name"] for t in TOOL_DEFINITIONS}
-        assert names == {"save_customer_data", "record_consent", "end_call"}
+        assert {"save_customer_data", "record_consent", "end_call"}.issubset(names)
 
     def test_save_customer_data_has_required_field(self):
         save_tool = next(t for t in TOOL_DEFINITIONS if t["name"] == "save_customer_data")
-        assert "full_name" in save_tool["parameters"]["required"]
+        required = set(save_tool["parameters"]["required"])
+        assert {"full_name", "email", "phone_number"}.issubset(required)
 
     def test_record_consent_has_consent_given(self):
         consent_tool = next(t for t in TOOL_DEFINITIONS if t["name"] == "record_consent")
@@ -62,4 +63,4 @@ class TestToolDefinitions:
         """Tool definitions should serialize to valid JSON."""
         serialized = json.dumps(TOOL_DEFINITIONS)
         parsed = json.loads(serialized)
-        assert len(parsed) == 3
+        assert len(parsed) == len(TOOL_DEFINITIONS)

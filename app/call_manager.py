@@ -76,6 +76,7 @@ class CallManager:
         "preferred_time_slot": "preferred_contact_time",
         "household_income": "income_range",
     }
+    _REQUIRED_CUSTOMER_FIELDS: list[str] = ["full_name", "email", "phone_number"]
 
     def __init__(self, websocket: WebSocket, temp_context_id: str | None=None):
         self.settings = get_settings()
@@ -343,6 +344,16 @@ class CallManager:
         self._collected_data.update(clean_args)
         logger.info("customer_data_collected", call_id=self.call_id, fields=list(clean_args.keys()))
 
+        normalized_customer_data = self._compose_final_customer_data()
+        missing_required = self._missing_required_customer_fields(normalized_customer_data)
+        if missing_required:
+            return json.dumps({
+                "status": "incomplete",
+                "message": f"Missing required fields: {', '.join(missing_required)}. Ask the customer again before ending the call.",
+                "missing_required_fields": missing_required,
+                "required_fields": self._REQUIRED_CUSTOMER_FIELDS,
+            })
+
         # Database removed - data sent to backend webhook instead
         # if not self.db_call_id:
         #     return json.dumps({"error": "No active session"})
@@ -402,6 +413,22 @@ class CallManager:
 
     async def _handle_end_call(self, args: dict) -> str:
         reason = args.get("reason", "completed")
+
+        if reason == "completed":
+            normalized_customer_data = self._compose_final_customer_data()
+            missing_required = self._missing_required_customer_fields(normalized_customer_data)
+            if missing_required:
+                logger.warning(
+                    "end_call_blocked_missing_required_fields",
+                    call_id=self.call_id,
+                    missing_required_fields=missing_required,
+                )
+                return json.dumps({
+                    "status": "blocked",
+                    "message": f"Cannot end call yet. Missing required fields: {', '.join(missing_required)}. Ask again and call save_customer_data.",
+                    "missing_required_fields": missing_required,
+                })
+
         if self._call_ended:
             return json.dumps({"status": "already_ended"})
         self._call_ended = True
@@ -562,27 +589,20 @@ class CallManager:
         if self._transcript_buffer:
             transcript = self._transcript_buffer
 
-        # BUILD CUSTOMER DATA: use in-memory collected data + transcript extraction
-        final_customer_data = {}
-
-        # Layer 1: Extract from transcript (lowest priority, fallback)
-        extracted = self._extract_data_from_transcript(transcript)
-        if extracted:
-            final_customer_data.update(extracted)
-
-        # Layer 2: In-memory collected data from save_customer_data calls
-        if self._collected_data:
-            # Remove internal tracking fields
-            clean_collected = {
-                k: v
-                for k, v in self._collected_data.items()
-                if k != "consent_given" and v is not None and (not isinstance(v, str) or v.strip())
-            }
-            final_customer_data.update(clean_collected)
+        normalized_customer_data = self._compose_final_customer_data()
 
         # Layer 3: DB customer data (highest priority, overwrites)
         if customer_data:
-            final_customer_data.update({k: v for k, v in customer_data.items() if v is not None})
+            normalized_customer_data.update({k: v for k, v in customer_data.items() if v is not None})
+            normalized_customer_data = self._normalize_customer_data(normalized_customer_data)
+
+        missing_required = self._missing_required_customer_fields(normalized_customer_data)
+        if missing_required:
+            logger.warning(
+                "call_complete_missing_required_customer_fields",
+                call_id=self.call_id,
+                missing_required_fields=missing_required,
+            )
 
         # Build payload with complete agent context for linking
         agent_context = {}
@@ -604,7 +624,7 @@ class CallManager:
             "consent_status": consent_status,
             "recording_url": recording_url,
             "agent_context": agent_context,  # All agent data for linking
-            "customer_data": self._normalize_customer_data(final_customer_data),  # Customer responses with complete schema
+            "customer_data": normalized_customer_data,  # Customer responses with complete schema
             "transcript": transcript,
         }
 
@@ -705,6 +725,34 @@ class CallManager:
                 normalized[key] = None
 
         return normalized
+
+    def _compose_final_customer_data(self) -> dict[str, Any]:
+        """Combine transcript extraction and collected fields into normalized customer data."""
+        final_customer_data: dict[str, Any] = {}
+
+        extracted = self._extract_data_from_transcript(self._transcript_buffer)
+        if extracted:
+            final_customer_data.update(extracted)
+
+        if self._collected_data:
+            clean_collected = {
+                k: v
+                for k, v in self._collected_data.items()
+                if k != "consent_given" and v is not None and (not isinstance(v, str) or v.strip())
+            }
+            final_customer_data.update(clean_collected)
+
+        normalized = self._normalize_customer_data(final_customer_data)
+
+        # If customer phone was not spoken, fallback to the dialed number so payload is still actionable.
+        if not normalized.get("phone_number") and self.call_context and self.call_context.to_number:
+            normalized["phone_number"] = self.call_context.to_number
+
+        return normalized
+
+    def _missing_required_customer_fields(self, customer_data: dict[str, Any]) -> list[str]:
+        """Return missing mandatory customer fields for call completion."""
+        return [field for field in self._REQUIRED_CUSTOMER_FIELDS if not customer_data.get(field)]
 
     def _extract_data_from_transcript(self, transcript: list[dict]) -> dict:
         """Extract customer data from conversation transcript as a fallback.
